@@ -8,10 +8,11 @@ export default function RoleGuard({
   allowedRoles: string[];
   children: JSX.Element;
 }) {
-  const role = localStorage.getItem("userRole");
+  const isAdmin = localStorage.getItem("isAdmin") === "true";
 
-  if (!role) return <Navigate to="/login" replace />;
-  if (!allowedRoles.includes(role)) return <Navigate to="/login" replace />;
+  if (!isAdmin) {
+    return <Navigate to="/admin" replace />;
+  }
 
   return children;
 }

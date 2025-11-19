@@ -1,5 +1,4 @@
 import { useMemo, useState, useEffect, type ChangeEvent } from "react";
-import { useNavigate } from "react-router-dom";
 import { nanoid } from "nanoid";
 import { BASE_URL } from "@/config";
 
@@ -55,8 +54,6 @@ const parseTimeToSeconds = (val: string): number | null => {
 };
 
 export default function CreateAssignment() {
-  const navigate = useNavigate();
-
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isQuiz, setIsQuiz] = useState(false);
@@ -77,22 +74,6 @@ export default function CreateAssignment() {
   } | null>(null);
 
   const [timeInputs, setTimeInputs] = useState<Record<string, string>>({});
-
-  // 🔐 token state
-  const [token, setToken] = useState<string | null>(null);
-
-  // --------------------------------------------------
-  // Load token on mount, redirect if missing
-  // --------------------------------------------------
-  useEffect(() => {
-    const storedToken = localStorage.getItem("token");
-    if (!storedToken) {
-      setError("You must be logged in to create assignments.");
-      navigate("/login");
-      return;
-    }
-    setToken(storedToken);
-  }, [navigate]);
 
   // keep local timeInputs in sync with question list + timeLimit
   useEffect(() => {
@@ -247,9 +228,9 @@ export default function CreateAssignment() {
     });
   };
 
-  // --------------------------------------------------
-  // Submit to backend with proper token usage
-  // --------------------------------------------------
+    // --------------------------------------------------
+    // Submit to backend in demo mode
+    // --------------------------------------------------
   const onSubmit = async () => {
     setError(null);
     setResult(null);
@@ -257,13 +238,6 @@ export default function CreateAssignment() {
     const validationError = validateAssignment();
     if (validationError) {
       setError(validationError);
-      return;
-    }
-
-    const currentToken = token || localStorage.getItem("token");
-    if (!currentToken) {
-      setError("You must be logged in to create assignments.");
-      navigate("/login");
       return;
     }
 
@@ -281,7 +255,6 @@ export default function CreateAssignment() {
 
     // 🔍 Debug logging
     console.log("Starting submit...");
-    console.log("Token exists:", !!currentToken);
     console.log("Payload:", {
       title,
       description,
@@ -297,7 +270,6 @@ export default function CreateAssignment() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${currentToken}`, // ✅ critical fix
         },
         body: JSON.stringify(payload),
       });

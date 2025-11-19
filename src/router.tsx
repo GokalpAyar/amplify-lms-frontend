@@ -3,15 +3,14 @@
 // Amplify-LMS Main Application Router
 // ----------------------------------------------------------
 // Handles navigation for Admin, Teacher, and Student roles.
-// Includes public pages (Login, Signup, Assignment Preview)
+// Includes the public admin-unlock + assignment preview pages
 // and protected dashboards with role-based access control.
 // ==========================================================
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 // ---------- Auth & Common Pages ----------
-import Login from "./pages/auth/login";    // ✅ fixed to match actual file names
-import Signup from "./pages/auth/signup";  // ✅ lowercase directory, capital file
+import AdminAccess from "./pages/AdminAccess";
 import NotFound from "./pages/NotFound";
 
 // ---------- Admin ----------
@@ -61,9 +60,9 @@ const AppRouter = () => (
   <Router>
     <Routes>
       {/* ---------- Public Routes ---------- */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
+      <Route path="/admin" element={<AdminAccess />} />
       <Route path="/student/:assignmentId" element={<TakeAssignment />} />
+      <Route path="/teacher/dashboard" element={<Navigate to="/dashboard/teacher" replace />} />
 
       {/* ---------- Protected Routes ---------- */}
       <Route
@@ -274,7 +273,7 @@ const AppRouter = () => (
       </Route>
 
       {/* ---------- Fallback Routes ---------- */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<Navigate to="/admin" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   </Router>
