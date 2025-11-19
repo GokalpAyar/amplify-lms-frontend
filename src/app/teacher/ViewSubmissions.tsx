@@ -1,6 +1,5 @@
 // Enhanced ViewSubmissions.tsx
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
 import { BASE_URL } from "@/config";
 
 interface Question {
@@ -36,31 +35,18 @@ const ViewSubmissions = () => {
   const [filterAssignment, setFilterAssignment] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "date" | "assignment">("date");
   const [searchTerm, setSearchTerm] = useState("");
-  const navigate = useNavigate();
-
-  // Redirect if not logged in
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) navigate("/login");
-  }, [navigate]);
 
   // Load all responses + assignments from backend
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem("token");
-
         // Load assignments
-        const assignRes = await fetch(`${BASE_URL}/assignments/`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const assignRes = await fetch(`${BASE_URL}/assignments/`);
         const assignData = await assignRes.json();
         setAssignments(Array.isArray(assignData) ? assignData : []);
 
         // Load responses
-        const respRes = await fetch(`${BASE_URL}/responses/`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const respRes = await fetch(`${BASE_URL}/responses/`);
         const respData = await respRes.json();
         setSubmissions(Array.isArray(respData) ? respData : []);
       } catch (err) {
