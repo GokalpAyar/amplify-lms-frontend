@@ -1,17 +1,18 @@
 // src/config.ts
 
-// Get env variable safely and normalize (remove trailing slash)
-const envValue = (import.meta.env.VITE_API_URL || "").trim();
-const normalizedEnv = envValue.replace(/\/$/, "");
-
-// Fallback backend URL (Render)
+// Backend API base URL
+const apiEnvValue = (import.meta.env.VITE_API_URL || "").trim();
+const normalizedApiEnv = apiEnvValue.replace(/\/$/, "");
 const FALLBACK_BASE_URL = "https://amplify-lms-backend.onrender.com";
-
-// Final API base URL (env → fallback)
-export const API_BASE_URL = normalizedEnv || FALLBACK_BASE_URL;
-
-// Alias for older code
+export const API_BASE_URL = normalizedApiEnv || FALLBACK_BASE_URL;
 export const BASE_URL = API_BASE_URL;
+
+// Frontend base URL (used for shareable links)
+const frontendEnvValue = (import.meta.env.VITE_FRONTEND_URL || "").trim();
+const normalizedFrontendEnv = frontendEnvValue.replace(/\/$/, "");
+const FALLBACK_FRONTEND_URL = "https://amplify-lms-frontend.vercel.app";
+export const FRONTEND_BASE_URL = normalizedFrontendEnv || FALLBACK_FRONTEND_URL;
+export const FRONTEND_ASSIGNMENT_URL = `${FRONTEND_BASE_URL}/student`;
 
 // Utility for building full API URLs
 export const apiUrl = (path = ""): string => {
