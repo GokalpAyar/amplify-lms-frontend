@@ -1,6 +1,263 @@
 // Enhanced ViewSubmissions.tsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { BASE_URL, FRONTEND_ASSIGNMENT_URL } from "@/config";
+
+type AnswerValue = string | OralAnswerEnvelope | null | undefined;
+
+interface AudioSourceMeta {
+  url: string;
+  mimeType?: string;
+  label?: string;
+}
+
+interface OralAnswerEnvelope {
+  transcript?: string;
+  audioUrl?: string;
+  mimeType?: string;
+  recordingUrl?: string;
+  recordingMime?: string;
+  durationMs?: number;
+  sizeBytes?: number;
+  sources?: AudioSourceMeta[];
+  formats?: AudioSourceMeta[];
+  [key: string]: unknown;
+}
+
+interface OralRecordingBundle {
+  transcript?: string;
+  sources: AudioSourceMeta[];
+  sizeBytes?: number;
+  durationMs?: number;
+}
+
+type AudioStatus = "idle" | "loading" | "ready" | "error";
+
+interface AudioMetaState {
+  status: AudioStatus;
+  duration?: number;
+  sizeBytes?: number;
+  sizeError?: string | null;
+  error?: string | null;
+}
+
+type AccuracyStatus = "idle" | "saving" | "saved" | "error";
+
+interface AccuracyDraft {
+  rating: number | null;
+  note: string;
+  flagBias: boolean;
+  status: AccuracyStatus;
+  error?: string | null;
+  lastSavedAt?: string;
+}
+
+interface TranscriptionFeedbackEntry {
+  rating: number;
+  note?: string;
+  flagBias?: boolean;
+  updatedAt?: string;
+}
+
+const SUPPORTED_MIME_TYPES = ["audio/webm", "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg"];
+const SUPPORTED_AUDIO_LABELS = Array.from(
+  new Set(
+    SUPPORTED_MIME_TYPES.map((type) => {
+      const [, subtype] = type.split("/");
+      return (subtype || type).toUpperCase();
+    })
+  )
+);
+const AUDIO_EXTENSION_REGEX = /\.(webm|mp3|wav|m4a|aac|ogg)$/i;
+
+const looksLikeAudioUrl = (value: string) =>
+  /^https?:\/\//i.test(value) || value.startsWith("data:audio/") || AUDIO_EXTENSION_REGEX.test(value);
+
+const safeNumber = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const tryParseJson = (raw: string): unknown | null => {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!["{", "["].includes(trimmed[0])) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeSourceMeta = (input: unknown): AudioSourceMeta | null => {
+  if (!input) return null;
+  if (typeof input === "string") {
+    return looksLikeAudioUrl(input) ? { url: input } : null;
+  }
+  if (typeof input === "object") {
+    const candidate = input as Record<string, any>;
+    const url = typeof candidate.url === "string" ? candidate.url : typeof candidate.href === "string" ? candidate.href : undefined;
+    if (!url) return null;
+    return {
+      url,
+      mimeType: candidate.mimeType || candidate.type || candidate.format || candidate.contentType,
+      label: candidate.label || candidate.quality || candidate.name,
+    };
+  }
+  return null;
+};
+
+const dedupeSources = (sources: AudioSourceMeta[]) => {
+  const seen = new Map<string, AudioSourceMeta>();
+  sources.forEach((source) => {
+    if (!source?.url) return;
+    if (!seen.has(source.url)) {
+      seen.set(source.url, source);
+    }
+  });
+  return Array.from(seen.values());
+};
+
+const normalizeRecordingAnswer = (
+  value: unknown,
+  fallbackTranscript?: string
+): OralRecordingBundle | null => {
+  if (value == null) {
+    return fallbackTranscript ? { transcript: fallbackTranscript, sources: [] } : null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = normalizeRecordingAnswer(entry, fallbackTranscript);
+      if (normalized?.sources?.length) return normalized;
+    }
+    return fallbackTranscript ? { transcript: fallbackTranscript, sources: [] } : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = tryParseJson(value);
+    if (parsed) {
+      return normalizeRecordingAnswer(parsed, fallbackTranscript);
+    }
+    if (looksLikeAudioUrl(value)) {
+      return { transcript: fallbackTranscript, sources: [{ url: value }] };
+    }
+    return {
+      transcript: value,
+      sources: [],
+    };
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, any>;
+    const candidateSources: AudioSourceMeta[] = [];
+    const tryPush = (source: AudioSourceMeta | null) => {
+      if (source?.url) {
+        candidateSources.push(source);
+      }
+    };
+
+    if (typeof record.audioUrl === "string") {
+      candidateSources.push({
+        url: record.audioUrl,
+        mimeType: record.mimeType || record.audioMimeType || record.audioType,
+      });
+    }
+    if (typeof record.recordingUrl === "string") {
+      candidateSources.push({
+        url: record.recordingUrl,
+        mimeType: record.recordingMime || record.mimeType,
+      });
+    }
+    if (typeof record.url === "string") {
+      candidateSources.push({
+        url: record.url,
+        mimeType: record.mimeType || record.type,
+        label: record.label,
+      });
+    }
+    if (typeof record.blobUrl === "string") {
+      candidateSources.push({ url: record.blobUrl, mimeType: record.mimeType });
+    }
+    [
+      record.source,
+      record.file,
+      record.primary,
+      record.original,
+    ].forEach((entry) => tryPush(normalizeSourceMeta(entry)));
+
+    (record.sources || record.formats || record.alternatives || record.variants || record.files)?.forEach?.((entry: unknown) => {
+      tryPush(normalizeSourceMeta(entry));
+    });
+
+    const transcript =
+      typeof record.transcript === "string"
+        ? record.transcript
+        : typeof record.answer === "string"
+        ? record.answer
+        : fallbackTranscript;
+
+    const sizeBytes =
+      safeNumber(record.sizeBytes) ??
+      safeNumber(record.fileSize) ??
+      safeNumber(record.file_size) ??
+      safeNumber(record.metadata?.sizeBytes);
+
+    const durationMs =
+      safeNumber(record.durationMs) ??
+      safeNumber(record.duration) ??
+      safeNumber(record.metadata?.durationMs);
+
+    return {
+      transcript,
+      sources: dedupeSources(candidateSources),
+      sizeBytes,
+      durationMs,
+    };
+  }
+
+  return fallbackTranscript ? { transcript: fallbackTranscript, sources: [] } : null;
+};
+
+const formatFileSize = (bytes?: number) => {
+  if (bytes == null) return "—";
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, exponent);
+  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+};
+
+const formatDuration = (seconds?: number) => {
+  if (seconds == null || Number.isNaN(seconds)) return "—";
+  const whole = Math.floor(seconds);
+  const mins = Math.floor(whole / 60);
+  const secs = whole % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+};
+
+const resolveAnswerText = (value: AnswerValue) => {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    if (typeof value.transcript === "string") return value.transcript;
+    if (typeof value.answer === "string") return value.answer;
+    if (typeof value.value === "string") return value.value;
+  }
+  return "";
+};
+
+const fetchFileSize = async (url: string, signal?: AbortSignal) => {
+  const response = await fetch(url, { method: "HEAD", signal });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const length = response.headers.get("content-length");
+  return length ? Number(length) : undefined;
+};
 
 interface Question {
   id: string;
@@ -22,9 +279,11 @@ interface StudentResponse {
   assignment_id: string;
   studentName: string;
   jNumber: string;
-  answers: Record<string, string>;
+  answers: Record<string, AnswerValue>;
   transcripts: Record<string, string>;
   submittedAt: string;
+  audioResponses?: Record<string, AnswerValue>;
+  transcriptionFeedback?: Record<string, TranscriptionFeedbackEntry>;
 }
 
 const ViewSubmissions = () => {
@@ -38,6 +297,9 @@ const ViewSubmissions = () => {
   const [deletingAssignmentId, setDeletingAssignmentId] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedAssignmentId, setCopiedAssignmentId] = useState<string | null>(null);
+  const [audioStates, setAudioStates] = useState<Record<string, AudioMetaState>>({});
+  const [accuracyFeedback, setAccuracyFeedback] = useState<Record<string, AccuracyDraft>>({});
+  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
   const getAssignmentLink = (assignmentId: string) =>
     `${FRONTEND_ASSIGNMENT_URL}/${assignmentId}`;
@@ -64,6 +326,232 @@ const ViewSubmissions = () => {
     const timer = setTimeout(() => setCopiedAssignmentId(null), 2000);
     return () => clearTimeout(timer);
   }, [copiedAssignmentId]);
+
+  const activeAssignment = useMemo(
+    () => (selected ? assignments.find((a) => a.id === selected.assignment_id) ?? null : null),
+    [assignments, selected]
+  );
+
+  const oralResponsePayloads = useMemo(() => {
+    if (!selected || !activeAssignment) return {};
+    return activeAssignment.questions
+      .filter((question) => question.type === "oral")
+      .reduce<Record<string, OralRecordingBundle | null>>((acc, question) => {
+        const fallbackTranscript = selected.transcripts?.[question.id];
+        const audioCandidate =
+          selected.audioResponses?.[question.id] ??
+          selected.answers?.[question.id];
+        acc[question.id] = normalizeRecordingAnswer(audioCandidate, fallbackTranscript);
+        return acc;
+      }, {});
+  }, [selected, activeAssignment]);
+
+  useEffect(() => {
+    if (!selected || !activeAssignment) {
+      setAudioStates({});
+      setAccuracyFeedback({});
+      audioRefs.current = {};
+      return;
+    }
+
+    const nextAudioStates: Record<string, AudioMetaState> = {};
+    activeAssignment.questions
+      .filter((q) => q.type === "oral")
+      .forEach((question) => {
+        const payload = oralResponsePayloads[question.id];
+        if (payload?.sources?.length) {
+          nextAudioStates[question.id] = {
+            status: "loading",
+            duration: payload.durationMs ? payload.durationMs / 1000 : undefined,
+            sizeBytes: payload.sizeBytes,
+            error: null,
+          };
+        } else {
+          nextAudioStates[question.id] = {
+            status: "error",
+            error: "No audio recording attached.",
+          };
+        }
+      });
+    setAudioStates(nextAudioStates);
+
+    const nextAccuracy: Record<string, AccuracyDraft> = {};
+    activeAssignment.questions
+      .filter((q) => q.type === "oral")
+      .forEach((question) => {
+        const existing = selected.transcriptionFeedback?.[question.id];
+        nextAccuracy[question.id] = {
+          rating: existing?.rating ?? null,
+          note: existing?.note ?? "",
+          flagBias: existing?.flagBias ?? false,
+          status: existing ? "saved" : "idle",
+          error: null,
+          lastSavedAt: existing?.updatedAt,
+        };
+      });
+    setAccuracyFeedback(nextAccuracy);
+
+    audioRefs.current = {};
+  }, [selected, activeAssignment, oralResponsePayloads]);
+
+  const requestFileSize = useCallback(
+    (questionId: string, url: string, signal?: AbortSignal) => {
+      if (!url) return;
+      setAudioStates((prev) => ({
+        ...prev,
+        [questionId]: { ...prev[questionId], sizeError: null },
+      }));
+      fetchFileSize(url, signal)
+        .then((size) => {
+          if (size == null) return;
+          setAudioStates((prev) => ({
+            ...prev,
+            [questionId]: { ...prev[questionId], sizeBytes: size },
+          }));
+        })
+        .catch((error) => {
+          if (signal?.aborted) return;
+          setAudioStates((prev) => ({
+            ...prev,
+            [questionId]: {
+              ...prev[questionId],
+              sizeError: error instanceof Error ? error.message : "Unable to fetch file size.",
+            },
+          }));
+        });
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!selected || !activeAssignment) return;
+    const controller = new AbortController();
+    Object.entries(oralResponsePayloads).forEach(([questionId, payload]) => {
+      if (!payload?.sources?.length || payload.sizeBytes) return;
+      const primaryUrl = payload.sources[0]?.url;
+      if (!primaryUrl) return;
+      requestFileSize(questionId, primaryUrl, controller.signal);
+    });
+    return () => controller.abort();
+  }, [selected, activeAssignment, oralResponsePayloads, requestFileSize]);
+
+  const handleAudioMetadataLoaded = (questionId: string, duration: number) => {
+    setAudioStates((prev) => ({
+      ...prev,
+      [questionId]: {
+        ...prev[questionId],
+        status: "ready",
+        duration: Number.isFinite(duration) ? duration : prev[questionId]?.duration,
+      },
+    }));
+  };
+
+  const handleAudioError = (questionId: string, message?: string) => {
+    setAudioStates((prev) => ({
+      ...prev,
+      [questionId]: {
+        ...prev[questionId],
+        status: "error",
+        error: message || "Unable to play audio. Please try again.",
+      },
+    }));
+  };
+
+  const handleRetryAudio = (questionId: string) => {
+    const node = audioRefs.current[questionId];
+    if (node) {
+      node.load();
+      setAudioStates((prev) => ({
+        ...prev,
+        [questionId]: { ...prev[questionId], status: "loading", error: null },
+      }));
+    }
+  };
+
+  const handlePlayOriginal = (questionId: string) => {
+    const node = audioRefs.current[questionId];
+    if (!node) return;
+    const playPromise = node.play();
+    if (playPromise instanceof Promise) {
+      playPromise.catch((error) => {
+        handleAudioError(questionId, error instanceof Error ? error.message : "Playback failed.");
+      });
+    }
+  };
+
+  const handleRetryMetadata = (questionId: string) => {
+    const source = oralResponsePayloads[questionId]?.sources?.[0];
+    if (source?.url) {
+      requestFileSize(questionId, source.url);
+    }
+  };
+
+  const updateAccuracyDraft = (questionId: string, partial: Partial<AccuracyDraft>) => {
+    setAccuracyFeedback((prev) => {
+      const existing = prev[questionId] ?? { rating: null, note: "", flagBias: false, status: "idle", error: null as string | null };
+      return {
+        ...prev,
+        [questionId]: { ...existing, ...partial },
+      };
+    });
+  };
+
+  const handleAccuracyRatingChange = (questionId: string, rating: number) => {
+    updateAccuracyDraft(questionId, { rating, status: "idle", error: null });
+  };
+
+  const handleAccuracyNoteChange = (questionId: string, note: string) => {
+    updateAccuracyDraft(questionId, { note, status: "idle" });
+  };
+
+  const handleFlagBiasToggle = (questionId: string) => {
+    setAccuracyFeedback((prev) => {
+      const existing = prev[questionId] ?? { rating: null, note: "", flagBias: false, status: "idle", error: null };
+      return {
+        ...prev,
+        [questionId]: { ...existing, flagBias: !existing.flagBias, status: "idle" },
+      };
+    });
+  };
+
+  const handleSaveAccuracy = async (questionId: string) => {
+    if (!selected) return;
+    const entry = accuracyFeedback[questionId];
+    if (!entry?.rating) {
+      updateAccuracyDraft(questionId, { error: "Select a rating before saving." });
+      return;
+    }
+
+    updateAccuracyDraft(questionId, { status: "saving", error: null });
+
+    try {
+      const response = await fetch(`${BASE_URL}/responses/${selected.id}/transcription-feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          questionId,
+          rating: entry.rating,
+          note: entry.note?.trim() || undefined,
+          flagBias: entry.flagBias,
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to save feedback.");
+      }
+
+      updateAccuracyDraft(questionId, {
+        status: "saved",
+        lastSavedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      updateAccuracyDraft(questionId, {
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to save feedback.",
+      });
+    }
+  };
 
   // Load all responses + assignments from backend
   useEffect(() => {
@@ -501,59 +989,279 @@ const ViewSubmissions = () => {
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-              {assignments.find(a => a.id === selected.assignment_id) ? (
-                <div className="space-y-6">
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <h3 className="text-lg font-bold text-blue-900">
-                      {assignments.find(a => a.id === selected.assignment_id)?.title}
-                    </h3>
-                    <p className="text-blue-700 mt-1">
-                      {assignments.find(a => a.id === selected.assignment_id)?.description}
-                    </p>
-                  </div>
-
-                  {assignments.find(a => a.id === selected.assignment_id)?.questions.map((q, i) => (
-                    <div key={q.id} className="border-l-4 border-blue-500 pl-4 py-2">
-                      <p className="font-medium text-gray-800 mb-2">
-                        {i + 1}. {q.text}
-                      </p>
-
-                      {q.type === "short" && (
-                        <div className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-gray-700 whitespace-pre-wrap">
-                            {selected.answers[q.id] || "No answer provided."}
-                          </p>
-                        </div>
-                      )}
-
-                      {q.type === "multiple" && (
-                        <div className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-gray-700">
-                            Selected: <strong>{selected.answers[q.id] || "No answer selected."}</strong>
-                          </p>
-                        </div>
-                      )}
-
-                      {q.type === "oral" && (
-                        <div className="space-y-2">
-                          <div className="bg-purple-50 rounded-lg p-3">
-                            <p className="text-sm text-purple-700 font-medium mb-1">🎙️ Oral Response Transcript</p>
-                            <p className="text-gray-700 whitespace-pre-wrap">
-                              {selected.transcripts[q.id] || "No transcript available."}
-                            </p>
-                          </div>
-                        </div>
+              <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+                {activeAssignment ? (
+                  <div className="space-y-6">
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <h3 className="text-lg font-bold text-blue-900">
+                        {activeAssignment.title}
+                      </h3>
+                      {activeAssignment.description && (
+                        <p className="text-blue-700 mt-1">
+                          {activeAssignment.description}
+                        </p>
                       )}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-red-500 text-center py-8">
-                  ⚠️ Assignment data not found
-                </p>
-              )}
-            </div>
+
+                    {activeAssignment.questions.map((q, i) => {
+                      const answerValue = selected.answers?.[q.id];
+                      const answerText = resolveAnswerText(answerValue);
+                      const isOral = q.type === "oral";
+                      const oralBundle = isOral ? oralResponsePayloads[q.id] : null;
+                      const audioState = isOral ? audioStates[q.id] : undefined;
+                      const transcriptText = isOral
+                        ? oralBundle?.transcript ?? selected.transcripts?.[q.id] ?? "No transcript available."
+                        : "";
+                      const accuracyEntry = isOral ? accuracyFeedback[q.id] : undefined;
+                      const formatBadges = isOral
+                        ? ((oralBundle?.sources || [])
+                            .map((source) => {
+                              if (source.mimeType) {
+                                const [, subtype] = source.mimeType.split("/");
+                                return (subtype || source.mimeType).toUpperCase();
+                              }
+                              const ext = source.url.split(".").pop();
+                              return ext ? ext.toUpperCase() : null;
+                            })
+                            .filter(Boolean) as string[])
+                        : [];
+                      const availableFormats = isOral
+                        ? formatBadges.length > 0
+                          ? formatBadges.join(" · ")
+                          : SUPPORTED_AUDIO_LABELS.join(" · ")
+                        : "";
+                      const hasAudioSources = isOral ? Boolean(oralBundle?.sources?.length) : false;
+
+                      return (
+                        <div key={q.id} className="border-l-4 border-blue-500 pl-4 py-2 space-y-4">
+                          <p className="font-medium text-gray-800 mb-2">
+                            {i + 1}. {q.text}
+                          </p>
+
+                          {q.type === "short" && (
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <p className="text-gray-700 whitespace-pre-wrap">
+                                {answerText || "No answer provided."}
+                              </p>
+                            </div>
+                          )}
+
+                          {q.type === "multiple" && (
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <p className="text-gray-700">
+                                Selected: <strong>{answerText || "No answer selected."}</strong>
+                              </p>
+                            </div>
+                          )}
+
+                          {isOral && (
+                            <div className="space-y-4">
+                              <div className="grid gap-4 lg:grid-cols-2">
+                                <div className="bg-purple-50 rounded-lg p-3">
+                                  <p className="text-sm text-purple-700 font-medium mb-1">
+                                    🎙️ Oral Response Transcript
+                                  </p>
+                                  <p className="text-gray-700 whitespace-pre-wrap">
+                                    {transcriptText}
+                                  </p>
+                                </div>
+                                <div className="rounded-lg border bg-white p-4 shadow-sm">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <p className="text-sm font-semibold text-gray-800">
+                                      Original Recording
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      Supports {SUPPORTED_AUDIO_LABELS.join(" · ")}
+                                    </p>
+                                  </div>
+
+                                  {hasAudioSources ? (
+                                    <>
+                                      {audioState?.status === "loading" && (
+                                        <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+                                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+                                          <span>Loading audio metadata…</span>
+                                        </div>
+                                      )}
+                                      <audio
+                                        ref={(node) => {
+                                          if (node) {
+                                            audioRefs.current[q.id] = node;
+                                          } else {
+                                            delete audioRefs.current[q.id];
+                                          }
+                                        }}
+                                        className="w-full"
+                                        preload="metadata"
+                                        controls
+                                        onLoadedMetadata={(event) =>
+                                          handleAudioMetadataLoaded(q.id, event.currentTarget.duration)
+                                        }
+                                        onError={() => handleAudioError(q.id)}
+                                      >
+                                        {oralBundle?.sources?.map((source, idx) => (
+                                          <source
+                                            key={`${source.url}-${idx}`}
+                                            src={source.url}
+                                            type={source.mimeType}
+                                          />
+                                        ))}
+                                        Your browser does not support audio playback.
+                                      </audio>
+                                      <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
+                                        <span>
+                                          Duration:{" "}
+                                          {formatDuration(
+                                            audioState?.duration ??
+                                              (oralBundle?.durationMs ? oralBundle.durationMs / 1000 : undefined)
+                                          )}
+                                        </span>
+                                        <span>
+                                          File Size:{" "}
+                                          {audioState?.sizeBytes
+                                            ? formatFileSize(audioState.sizeBytes)
+                                            : oralBundle?.sizeBytes
+                                            ? formatFileSize(oralBundle.sizeBytes)
+                                            : audioState?.sizeError
+                                            ? `Unavailable (${audioState.sizeError})`
+                                            : "Calculating…"}
+                                        </span>
+                                      </div>
+                                      {audioState?.sizeError && (
+                                        <button
+                                          onClick={() => handleRetryMetadata(q.id)}
+                                          className="mt-2 text-sm text-blue-600 hover:underline"
+                                        >
+                                          Retry metadata lookup
+                                        </button>
+                                      )}
+                                      {audioState?.error && (
+                                        <div className="mt-3 space-y-2">
+                                          <p className="text-sm text-red-600">{audioState.error}</p>
+                                          <button
+                                            onClick={() => handleRetryAudio(q.id)}
+                                            className="text-sm text-blue-600 underline"
+                                          >
+                                            Retry playback
+                                          </button>
+                                        </div>
+                                      )}
+                                      <div className="mt-4 flex flex-wrap gap-3">
+                                        <button
+                                          onClick={() => handlePlayOriginal(q.id)}
+                                          disabled={audioState?.status !== "ready"}
+                                          className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                        >
+                                          Play Original Recording
+                                        </button>
+                                        {oralBundle?.sources?.map((source, idx) => (
+                                          <a
+                                            key={`download-${source.url}-${idx}`}
+                                            href={source.url}
+                                            download
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                          >
+                                            Download{" "}
+                                            {source.label ||
+                                              (source.mimeType
+                                                ? source.mimeType.split("/").pop()?.toUpperCase()
+                                                : `File ${idx + 1}`)}
+                                          </a>
+                                        ))}
+                                      </div>
+                                      <p className="mt-3 text-xs text-gray-500">
+                                        Available formats: {availableFormats}
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <div className="text-sm text-gray-600">
+                                      No recording on file for this response.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="rounded-lg border bg-gray-50 p-4">
+                                <div className="flex items-center justify-between mb-1">
+                                  <p className="font-semibold text-gray-800">Transcription Accuracy</p>
+                                  {accuracyEntry?.status === "saved" && (
+                                    <span className="text-xs text-green-600">
+                                      Saved{" "}
+                                      {accuracyEntry.lastSavedAt
+                                        ? new Date(accuracyEntry.lastSavedAt).toLocaleTimeString()
+                                        : ""}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-600">
+                                  Rate how well the transcript matches the student's voice for bias monitoring.
+                                </p>
+                                <div className="mt-3 flex items-center gap-2">
+                                  {[1, 2, 3, 4, 5].map((score) => (
+                                    <button
+                                      key={score}
+                                      onClick={() => handleAccuracyRatingChange(q.id, score)}
+                                      className={`h-9 w-9 rounded-full border text-sm font-semibold ${
+                                        (accuracyEntry?.rating ?? 0) >= score
+                                          ? "border-purple-600 bg-purple-600 text-white"
+                                          : "border-gray-300 bg-white text-gray-600"
+                                      }`}
+                                      aria-label={`Accuracy rating ${score}`}
+                                    >
+                                      {score}
+                                    </button>
+                                  ))}
+                                  <span className="text-xs text-gray-500">1 = low, 5 = perfect</span>
+                                </div>
+                                <label className="mt-3 block text-sm font-medium text-gray-700">
+                                  Context / Bias Notes
+                                  <textarea
+                                    value={accuracyEntry?.note ?? ""}
+                                    onChange={(e) => handleAccuracyNoteChange(q.id, e.target.value)}
+                                    rows={3}
+                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    placeholder="Document pronunciation mismatches, dialect issues, or bias cues…"
+                                  />
+                                </label>
+                                <label className="mt-3 inline-flex items-center gap-2 text-sm text-gray-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={accuracyEntry?.flagBias ?? false}
+                                    onChange={() => handleFlagBiasToggle(q.id)}
+                                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                  />
+                                  Flag for bias investigation
+                                </label>
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                  <button
+                                    onClick={() => handleSaveAccuracy(q.id)}
+                                    disabled={accuracyEntry?.status === "saving"}
+                                    className="rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    {accuracyEntry?.status === "saving" ? "Saving..." : "Save Rating"}
+                                  </button>
+                                  {accuracyEntry?.status === "error" && (
+                                    <span className="text-sm text-red-600">{accuracyEntry.error}</span>
+                                  )}
+                                  {accuracyEntry?.status === "saved" && (
+                                    <span className="text-sm text-green-600">Feedback saved</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-red-500 text-center py-8">
+                    ⚠️ Assignment data not found
+                  </p>
+                )}
+              </div>
 
             <div className="p-6 border-t bg-gray-50">
               <div className="flex justify-end">
