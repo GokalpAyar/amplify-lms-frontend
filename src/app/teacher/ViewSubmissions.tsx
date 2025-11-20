@@ -1,8 +1,6 @@
 // Enhanced ViewSubmissions.tsx
 import { useState, useEffect, useMemo } from "react";
-import { BASE_URL } from "@/config";
-
-const FRONTEND_ASSIGNMENT_URL = "https://my-frontend-url.com/assignment";
+import { BASE_URL, FRONTEND_ASSIGNMENT_URL } from "@/config";
 
 interface Question {
   id: string;
