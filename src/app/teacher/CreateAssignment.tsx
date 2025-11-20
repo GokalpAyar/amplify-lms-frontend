@@ -1,4 +1,11 @@
-import { useMemo, useState, useEffect, type ChangeEvent } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ChangeEvent,
+} from "react";
 import { nanoid } from "nanoid";
 import { BASE_URL } from "@/config";
 
@@ -53,6 +60,116 @@ const parseTimeToSeconds = (val: string): number | null => {
   return Math.floor(n);
 };
 
+interface AssignmentDraftPayload {
+  title: string;
+  description: string;
+  isQuiz: boolean;
+  dueDate: string;
+  assignmentTimeLimit: number | null;
+  assignmentTimeInput: string;
+  questions: Question[];
+  timeInputs: Record<string, string>;
+}
+
+type DraftStatus = "idle" | "loading" | "saving" | "saved" | "offline" | "error";
+
+const AUTOSAVE_INTERVAL_MS = 30_000;
+const DRAFT_STORAGE_KEY = "teacher-create-assignment-draft";
+const isBrowser = typeof window !== "undefined";
+
+const normalizeDraftPayload = (
+  raw?: Partial<AssignmentDraftPayload> | null
+): AssignmentDraftPayload => {
+  const normalizedQuestions =
+    raw?.questions && raw.questions.length > 0
+      ? raw.questions.map((question) => {
+          const type: QType = (question.type as QType) ?? "short";
+          const normalized: Question = {
+            ...question,
+            id: question.id || nanoid(),
+            type,
+            text: question.text ?? "",
+          };
+
+          if (type === "multiple") {
+            normalized.options =
+              question.options && question.options.length >= 2
+                ? question.options
+                : ["", ""];
+          } else {
+            normalized.options = undefined;
+            normalized.correctOption = undefined;
+          }
+
+          if (
+            typeof normalized.timeLimit !== "number" ||
+            normalized.timeLimit <= 0
+          ) {
+            normalized.timeLimit = undefined;
+          }
+
+          return normalized;
+        })
+      : [newQuestion("short")];
+
+  const assignmentTimeLimit =
+    typeof raw?.assignmentTimeLimit === "number" && raw.assignmentTimeLimit > 0
+      ? raw.assignmentTimeLimit
+      : null;
+
+  const sanitizedTimeInputs: Record<string, string> = {};
+  if (raw?.timeInputs) {
+    for (const [key, value] of Object.entries(raw.timeInputs)) {
+      if (typeof value === "string") {
+        sanitizedTimeInputs[key] = value;
+      }
+    }
+  }
+
+  return {
+    title: raw?.title ?? "",
+    description: raw?.description ?? "",
+    isQuiz: raw?.isQuiz ?? false,
+    dueDate: raw?.dueDate ?? "",
+    assignmentTimeLimit,
+    assignmentTimeInput:
+      raw?.assignmentTimeInput ??
+      (assignmentTimeLimit ? formatSeconds(assignmentTimeLimit) : ""),
+    questions: normalizedQuestions,
+    timeInputs: sanitizedTimeInputs,
+  };
+};
+
+const persistLocalDraft = (value: string) => {
+  if (!isBrowser) return;
+  try {
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, value);
+  } catch (err) {
+    console.warn("Unable to persist draft locally", err);
+  }
+};
+
+const readLocalDraft = (): AssignmentDraftPayload | null => {
+  if (!isBrowser) return null;
+  try {
+    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) return null;
+    return normalizeDraftPayload(JSON.parse(raw));
+  } catch (err) {
+    console.warn("Unable to parse local draft", err);
+    return null;
+  }
+};
+
+const removeLocalDraft = () => {
+  if (!isBrowser) return;
+  try {
+    window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+  } catch (err) {
+    console.warn("Unable to remove local draft", err);
+  }
+};
+
 export default function CreateAssignment() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -74,6 +191,39 @@ export default function CreateAssignment() {
   } | null>(null);
 
   const [timeInputs, setTimeInputs] = useState<Record<string, string>>({});
+  const [draftStatus, setDraftStatus] = useState<DraftStatus>("idle");
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [draftErrorMessage, setDraftErrorMessage] = useState<string | null>(null);
+  const [isDraftLoading, setIsDraftLoading] = useState(true);
+
+  const draftPayload = useMemo<AssignmentDraftPayload>(
+    () => ({
+      title,
+      description,
+      isQuiz,
+      dueDate,
+      assignmentTimeLimit,
+      assignmentTimeInput,
+      questions,
+      timeInputs,
+    }),
+    [
+      title,
+      description,
+      isQuiz,
+      dueDate,
+      assignmentTimeLimit,
+      assignmentTimeInput,
+      questions,
+      timeInputs,
+    ]
+  );
+
+  const serializedDraft = useMemo(
+    () => JSON.stringify(draftPayload),
+    [draftPayload]
+  );
+  const lastSavedDraftRef = useRef<string>(serializedDraft);
 
   // keep local timeInputs in sync with question list + timeLimit
   useEffect(() => {
@@ -91,6 +241,96 @@ export default function CreateAssignment() {
       return next;
     });
   }, [questions]);
+
+  const applyDraft = useCallback((draft: AssignmentDraftPayload) => {
+    setTitle(draft.title ?? "");
+    setDescription(draft.description ?? "");
+    setIsQuiz(draft.isQuiz ?? false);
+    setDueDate(draft.dueDate ?? "");
+    setAssignmentTimeLimit(draft.assignmentTimeLimit ?? null);
+    setAssignmentTimeInput(draft.assignmentTimeInput ?? "");
+    setQuestions(
+      draft.questions && draft.questions.length > 0
+        ? draft.questions
+        : [newQuestion("short")]
+    );
+    setTimeInputs({ ...(draft.timeInputs ?? {}) });
+  }, []);
+
+  const clearDraft = useCallback(async () => {
+    try {
+      await fetch(`${BASE_URL}/assignments/draft`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.warn("Failed to clear assignment draft", err);
+    } finally {
+      removeLocalDraft();
+      setDraftStatus("idle");
+      setDraftSavedAt(null);
+      setDraftErrorMessage(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadExistingDraft = async () => {
+      setDraftStatus("loading");
+      try {
+        const response = await fetch(`${BASE_URL}/assignments/draft`, {
+          credentials: "include",
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error("Draft not found");
+          }
+          throw new Error(text || `Failed to load draft (${response.status})`);
+        }
+
+        if (!isActive) return;
+        if (text) {
+          const parsed = normalizeDraftPayload(JSON.parse(text));
+          applyDraft(parsed);
+          const serialized = JSON.stringify(parsed);
+          lastSavedDraftRef.current = serialized;
+          persistLocalDraft(serialized);
+          setDraftStatus("saved");
+          setDraftSavedAt(Date.now());
+          setDraftErrorMessage(null);
+        } else {
+          setDraftStatus("idle");
+        }
+      } catch (err) {
+        if (!isActive) return;
+        console.warn("Unable to load draft from backend", err);
+        const localDraft = readLocalDraft();
+        if (localDraft) {
+          applyDraft(localDraft);
+          const serialized = JSON.stringify(localDraft);
+          lastSavedDraftRef.current = serialized;
+          setDraftStatus("offline");
+          setDraftSavedAt(Date.now());
+          setDraftErrorMessage(
+            "Working offline — restored your locally saved draft."
+          );
+        } else {
+          setDraftStatus("idle");
+        }
+      } finally {
+        if (isActive) {
+          setIsDraftLoading(false);
+        }
+      }
+    };
+
+    loadExistingDraft();
+    return () => {
+      isActive = false;
+    };
+  }, [applyDraft]);
 
   // --------------------------------------------------
   // Basic validation before submit
@@ -125,21 +365,98 @@ export default function CreateAssignment() {
     return null;
   };
 
-  const canSave = useMemo(() => {
-    if (!title.trim() || !description.trim()) return false;
-    if (questions.length === 0) return false;
-    return questions.every((q) => {
-      if (!q.text.trim()) return false;
-      if (q.type === "multiple") {
-        const nonEmpty = (q.options ?? []).filter((o) => o.trim().length > 0);
-        if (nonEmpty.length < 2) return false;
-        if (isQuiz && (q.correctOption === undefined || q.correctOption < 0)) {
-          return false;
+    const canSave = useMemo(() => {
+      if (!title.trim() || !description.trim()) return false;
+      if (questions.length === 0) return false;
+      return questions.every((q) => {
+        if (!q.text.trim()) return false;
+        if (q.type === "multiple") {
+          const nonEmpty = (q.options ?? []).filter((o) => o.trim().length > 0);
+          if (nonEmpty.length < 2) return false;
+          if (isQuiz && (q.correctOption === undefined || q.correctOption < 0)) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }, [title, description, questions, isQuiz]);
+
+    const saveDraft = useCallback(async () => {
+      if (isDraftLoading) return;
+      if (serializedDraft === lastSavedDraftRef.current) return;
+
+      setDraftStatus("saving");
+      setDraftErrorMessage(null);
+      try {
+        const response = await fetch(`${BASE_URL}/assignments/draft`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: serializedDraft,
+        });
+
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(text || `Failed to save draft (${response.status})`);
+        }
+
+        lastSavedDraftRef.current = serializedDraft;
+        setDraftStatus("saved");
+        setDraftSavedAt(Date.now());
+        persistLocalDraft(serializedDraft);
+      } catch (err) {
+        console.error("Draft auto-save failed:", err);
+        persistLocalDraft(serializedDraft);
+        setDraftSavedAt(Date.now());
+        const online =
+          typeof navigator !== "undefined" ? navigator.onLine : true;
+        if (online) {
+          setDraftStatus("error");
+          setDraftErrorMessage(
+            err instanceof Error
+              ? err.message
+              : "Unable to save draft. Changes kept locally."
+          );
+        } else {
+          setDraftStatus("offline");
+          setDraftErrorMessage(
+            "Offline — draft saved locally until connection returns."
+          );
         }
       }
-      return true;
-    });
-  }, [title, description, questions, isQuiz]);
+    }, [isDraftLoading, serializedDraft]);
+
+    useEffect(() => {
+      if (!isBrowser) return;
+      const id = window.setInterval(() => {
+        void saveDraft();
+      }, AUTOSAVE_INTERVAL_MS);
+      return () => window.clearInterval(id);
+    }, [saveDraft]);
+
+    useEffect(() => {
+      if (!isBrowser) return;
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === "hidden") {
+          void saveDraft();
+        }
+      };
+
+      const handleBeforeUnload = () => {
+        void saveDraft();
+      };
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("beforeunload", handleBeforeUnload);
+
+      return () => {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("beforeunload", handleBeforeUnload);
+      };
+    }, [saveDraft]);
 
   // ---- helpers ----
   const updateQuestion = (id: string, patch: Partial<Question>) =>
@@ -218,6 +535,70 @@ export default function CreateAssignment() {
       prev.map((q) => (q.id === qid ? { ...q, correctOption: index } : q))
     );
 
+    const handleReset = useCallback(() => {
+      const initialQuestion = newQuestion("short");
+      const blankDraft: AssignmentDraftPayload = {
+        title: "",
+        description: "",
+        isQuiz: false,
+        dueDate: "",
+        assignmentTimeLimit: null,
+        assignmentTimeInput: "",
+        questions: [initialQuestion],
+        timeInputs: { [initialQuestion.id]: "" },
+      };
+
+      setQuestions(blankDraft.questions);
+      setTitle("");
+      setDescription("");
+      setDueDate("");
+      setIsQuiz(false);
+      setAssignmentTimeLimit(null);
+      setAssignmentTimeInput("");
+      setError(null);
+      setResult(null);
+      setTimeInputs(blankDraft.timeInputs);
+      setSaving(false);
+      lastSavedDraftRef.current = JSON.stringify(blankDraft);
+      void clearDraft();
+    }, [clearDraft]);
+
+    const draftIndicator = useMemo(() => {
+      if (isDraftLoading || draftStatus === "loading") {
+        return { message: "Loading saved draft…", className: "text-gray-500" };
+      }
+      if (draftStatus === "saving") {
+        return { message: "Saving draft…", className: "text-blue-600" };
+      }
+      if (draftStatus === "saved") {
+        const timeLabel =
+          draftSavedAt &&
+          new Date(draftSavedAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        return {
+          message: timeLabel ? `Draft saved • ${timeLabel}` : "Draft saved",
+          className: "text-green-600",
+        };
+      }
+      if (draftStatus === "offline") {
+        return {
+          message: draftErrorMessage ?? "Offline — draft saved locally.",
+          className: "text-amber-600",
+        };
+      }
+      if (draftStatus === "error") {
+        return {
+          message:
+            draftErrorMessage ??
+            "Auto-save failed. Draft kept locally until connection returns.",
+          className: "text-red-600",
+        };
+      }
+      return null;
+    }, [draftStatus, draftSavedAt, draftErrorMessage, isDraftLoading]);
+
   // ⚠️ Currently only creates a local preview URL (no backend upload yet).
   const handleMediaUpload = (qid: string, e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -286,11 +667,13 @@ export default function CreateAssignment() {
         throw new Error(detail);
       }
 
-      setResult({
-        assignmentId: data.id,
-        shareLink: `/student/${data.id}`,
-        questionsCount: questions.length,
-      });
+        setResult({
+          assignmentId: data.id,
+          shareLink: `/student/${data.id}`,
+          questionsCount: questions.length,
+        });
+        await clearDraft();
+        lastSavedDraftRef.current = serializedDraft;
     } catch (e: any) {
       console.error("Full error during assignment save:", e);
       if (e instanceof Error) {
@@ -584,33 +967,30 @@ export default function CreateAssignment() {
         </button>
       </div>
 
-      {/* Save / Reset */}
-      <div className="mt-6 flex gap-3">
-        <button
-          disabled={!canSave || saving}
-          onClick={onSubmit}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save & Publish"}
-        </button>
-        <button
-          onClick={() => {
-            setQuestions([newQuestion("short")]);
-            setTitle("");
-            setDescription("");
-            setDueDate("");
-            setIsQuiz(false);
-            setAssignmentTimeLimit(null);
-            setAssignmentTimeInput("");
-            setError(null);
-            setResult(null);
-            setTimeInputs({});
-          }}
-          className="px-4 py-2 border rounded-md"
-        >
-          Reset
-        </button>
-      </div>
+        {/* Save / Reset */}
+        <div className="mt-6 flex gap-3">
+          <button
+            disabled={!canSave || saving}
+            onClick={onSubmit}
+            className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save & Publish"}
+          </button>
+          <button
+            onClick={() => void handleReset()}
+            className="px-4 py-2 border rounded-md"
+          >
+            Reset
+          </button>
+        </div>
+        {draftIndicator && (
+          <p
+            className={`mt-2 text-sm ${draftIndicator.className}`}
+            aria-live="polite"
+          >
+            {draftIndicator.message}
+          </p>
+        )}
 
       {/* Feedback */}
       {error && <p className="mt-3 text-red-600">{error}</p>}
