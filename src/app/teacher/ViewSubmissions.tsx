@@ -23,9 +23,110 @@ interface StudentResponse {
   studentName: string;
   jNumber: string;
   answers: Record<string, string>;
-  transcripts: Record<string, string>;
+  transcripts: Record<string, TranscriptRecord>;
   submittedAt: string;
 }
+
+type TranscriptSegment = {
+  text: string;
+  confidence?: number;
+  speaker?: string;
+  startTime?: number;
+  endTime?: number;
+};
+
+type TranscriptRecord =
+  | string
+  | {
+      text?: string;
+      transcript?: string;
+      confidence?: number;
+      confidenceScore?: number;
+      score?: number;
+      segments?: TranscriptSegment[];
+      [key: string]: any;
+    };
+
+interface NormalizedTranscript {
+  text: string;
+  confidence?: number;
+  segments?: TranscriptSegment[];
+}
+
+const normalizeTranscript = (value?: TranscriptRecord): NormalizedTranscript => {
+  if (!value) {
+    return { text: "" };
+  }
+
+  const parseObject = (obj: any): NormalizedTranscript => ({
+    text:
+      typeof obj?.text === "string"
+        ? obj.text
+        : typeof obj?.transcript === "string"
+        ? obj.transcript
+        : "",
+    confidence:
+      typeof obj?.confidence === "number"
+        ? obj.confidence
+        : typeof obj?.confidenceScore === "number"
+        ? obj.confidenceScore
+        : typeof obj?.score === "number"
+        ? obj.score
+        : undefined,
+    segments: Array.isArray(obj?.segments)
+      ? obj.segments
+          .filter((segment: TranscriptSegment) => segment && typeof segment.text === "string")
+          .map((segment: TranscriptSegment) => ({
+            text: segment.text,
+            confidence:
+              typeof segment.confidence === "number" ? segment.confidence : undefined,
+            speaker: segment.speaker,
+            startTime: segment.startTime,
+            endTime: segment.endTime,
+          }))
+      : undefined,
+  });
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return { text: "" };
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object") {
+        return parseObject(parsed);
+      }
+    } catch {
+      // Value was plain text, return as-is
+    }
+    return { text: value };
+  }
+
+  return parseObject(value);
+};
+
+const getConfidencePercentage = (score?: number) => {
+  if (typeof score !== "number" || Number.isNaN(score)) {
+    return undefined;
+  }
+  const normalized = score <= 1 ? score * 100 : score;
+  return Math.round(Math.max(0, Math.min(100, normalized)));
+};
+
+type TranscriptAccuracyRating = "accurate" | "unsure" | "needs_review";
+
+const transcriptAccuracyOptions: { label: string; value: TranscriptAccuracyRating }[] = [
+  { label: "Accurate", value: "accurate" },
+  { label: "Unsure", value: "unsure" },
+  { label: "Needs Review", value: "needs_review" },
+];
+
+const transcriptAccuracyBadgeStyles: Record<TranscriptAccuracyRating, string> = {
+  accurate: "border-green-200 bg-green-50 text-green-700",
+  unsure: "border-amber-200 bg-amber-50 text-amber-700",
+  needs_review: "border-red-200 bg-red-50 text-red-700",
+};
 
 const ViewSubmissions = () => {
   const [submissions, setSubmissions] = useState<StudentResponse[]>([]);
@@ -38,9 +139,17 @@ const ViewSubmissions = () => {
   const [deletingAssignmentId, setDeletingAssignmentId] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedAssignmentId, setCopiedAssignmentId] = useState<string | null>(null);
+  const [transcriptAccuracy, setTranscriptAccuracy] = useState<Record<string, TranscriptAccuracyRating | null>>({});
 
   const getAssignmentLink = (assignmentId: string) =>
     `${FRONTEND_ASSIGNMENT_URL}/${assignmentId}`;
+
+  const handleAccuracySelection = (questionId: string, rating: TranscriptAccuracyRating) => {
+    setTranscriptAccuracy(prev => ({
+      ...prev,
+      [questionId]: prev[questionId] === rating ? null : rating,
+    }));
+  };
 
   const handleCopyAssignmentLink = async (assignmentId: string) => {
     const link = getAssignmentLink(assignmentId);
@@ -64,6 +173,10 @@ const ViewSubmissions = () => {
     const timer = setTimeout(() => setCopiedAssignmentId(null), 2000);
     return () => clearTimeout(timer);
   }, [copiedAssignmentId]);
+
+  useEffect(() => {
+    setTranscriptAccuracy({});
+  }, [selected?.id]);
 
   // Load all responses + assignments from backend
   useEffect(() => {
@@ -142,6 +255,11 @@ const ViewSubmissions = () => {
 
     return groups;
   }, [assignments]);
+
+  const selectedAssignment = useMemo(
+    () => (selected ? assignments.find(a => a.id === selected.assignment_id) : undefined),
+    [assignments, selected]
+  );
 
   const handleDeleteAssignment = async (assignmentId: string) => {
     const assignment = assignments.find(a => a.id === assignmentId);
@@ -502,51 +620,180 @@ const ViewSubmissions = () => {
             </div>
 
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-              {assignments.find(a => a.id === selected.assignment_id) ? (
+              {selectedAssignment ? (
                 <div className="space-y-6">
-                  <div className="bg-blue-50 rounded-lg p-4">
+                  <div className="bg-blue-50 rounded-lg border border-blue-100 p-4 shadow-inner">
                     <h3 className="text-lg font-bold text-blue-900">
-                      {assignments.find(a => a.id === selected.assignment_id)?.title}
+                      {selectedAssignment.title}
                     </h3>
-                    <p className="text-blue-700 mt-1">
-                      {assignments.find(a => a.id === selected.assignment_id)?.description}
-                    </p>
+                    {selectedAssignment.description && (
+                      <p className="text-blue-700 mt-1">
+                        {selectedAssignment.description}
+                      </p>
+                    )}
                   </div>
 
-                  {assignments.find(a => a.id === selected.assignment_id)?.questions.map((q, i) => (
-                    <div key={q.id} className="border-l-4 border-blue-500 pl-4 py-2">
-                      <p className="font-medium text-gray-800 mb-2">
-                        {i + 1}. {q.text}
-                      </p>
+                  {selectedAssignment.questions.map((q, i) => {
+                    const isOral = q.type === "oral";
+                    const transcriptDetails = isOral
+                      ? normalizeTranscript(selected.transcripts?.[q.id])
+                      : undefined;
+                    const transcriptText = transcriptDetails?.text?.trim() ?? "";
+                    const transcriptParagraphs = transcriptText
+                      ? transcriptText.split(/\n{2,}|\r\n\r\n/g).filter(Boolean)
+                      : [];
+                    const transcriptSegments =
+                      transcriptDetails?.segments?.filter(
+                        segment => segment?.text && segment.text.trim().length > 0
+                      ) ?? [];
+                    const confidencePercent = transcriptDetails
+                      ? getConfidencePercentage(transcriptDetails.confidence)
+                      : undefined;
+                    const rating = transcriptAccuracy[q.id];
+                    const ratingLabel = transcriptAccuracyOptions.find(
+                      option => option.value === rating
+                    )?.label;
 
-                      {q.type === "short" && (
-                        <div className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-gray-700 whitespace-pre-wrap">
-                            {selected.answers[q.id] || "No answer provided."}
-                          </p>
-                        </div>
-                      )}
+                    return (
+                      <div key={q.id} className="border-l-4 border-blue-500 pl-4 py-2 space-y-3">
+                        <p className="font-medium text-gray-800">
+                          {i + 1}. {q.text}
+                        </p>
 
-                      {q.type === "multiple" && (
-                        <div className="bg-gray-50 rounded-lg p-3">
-                          <p className="text-gray-700">
-                            Selected: <strong>{selected.answers[q.id] || "No answer selected."}</strong>
-                          </p>
-                        </div>
-                      )}
-
-                      {q.type === "oral" && (
-                        <div className="space-y-2">
-                          <div className="bg-purple-50 rounded-lg p-3">
-                            <p className="text-sm text-purple-700 font-medium mb-1">🎙️ Oral Response Transcript</p>
+                        {q.type === "short" && (
+                          <div className="bg-gray-50 rounded-lg p-3">
                             <p className="text-gray-700 whitespace-pre-wrap">
-                              {selected.transcripts[q.id] || "No transcript available."}
+                              {selected.answers[q.id] || "No answer provided."}
                             </p>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        )}
+
+                        {q.type === "multiple" && (
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <p className="text-gray-700">
+                              Selected: <strong>{selected.answers[q.id] || "No answer selected."}</strong>
+                            </p>
+                          </div>
+                        )}
+
+                        {isOral && (
+                          <div className="space-y-4">
+                            <div className="rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50 via-white to-white p-4 shadow-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-purple-900 uppercase tracking-wide flex items-center gap-2">
+                                  <span role="img" aria-label="microphone">
+                                    🎙️
+                                  </span>
+                                  Oral Response Transcript
+                                </p>
+                                {confidencePercent !== undefined ? (
+                                  <div className="flex items-center gap-2 text-xs font-semibold text-purple-700">
+                                    <span>Confidence</span>
+                                    <div className="h-2 w-24 rounded-full bg-purple-100 overflow-hidden">
+                                      <span
+                                        className="block h-full rounded-full bg-purple-500"
+                                        style={{ width: `${confidencePercent}%` }}
+                                      ></span>
+                                    </div>
+                                    <span>{confidencePercent}%</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] font-medium text-purple-500">
+                                    Confidence score unavailable
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-4 rounded-xl border border-purple-50 bg-white/80 p-4 shadow-inner max-h-72 overflow-y-auto">
+                                {transcriptParagraphs.length > 0 ? (
+                                  <div className="space-y-4 text-gray-800 text-sm md:text-base leading-relaxed">
+                                    {transcriptParagraphs.map((paragraph, idx) => (
+                                      <p key={idx} className="whitespace-pre-wrap break-words">
+                                        {paragraph}
+                                      </p>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-gray-500 italic">
+                                    {transcriptText ? transcriptText : "No transcript available."}
+                                  </p>
+                                )}
+                              </div>
+
+                              {transcriptSegments.length > 0 && (
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                  {transcriptSegments.slice(0, 4).map((segment, idx) => {
+                                    const segmentConfidence = getConfidencePercentage(
+                                      segment.confidence
+                                    );
+                                    return (
+                                      <span
+                                        key={`${segment.text}-${idx}`}
+                                        className="rounded-full bg-purple-100 px-3 py-1 text-xs font-medium text-purple-700"
+                                      >
+                                        {segment.text}
+                                        {segmentConfidence !== undefined && (
+                                          <span className="ml-1 text-[10px] text-purple-500">
+                                            ({segmentConfidence}%)
+                                          </span>
+                                        )}
+                                      </span>
+                                    );
+                                  })}
+                                  {transcriptSegments.length > 4 && (
+                                    <span className="text-xs font-medium text-purple-600">
+                                      +{transcriptSegments.length - 4} more segment
+                                      {transcriptSegments.length - 4 === 1 ? "" : "s"}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-900">Transcript Accuracy</p>
+                                  <p className="text-xs text-gray-500">
+                                    Rate how close the AI transcript is for this response.
+                                  </p>
+                                </div>
+                                {rating && ratingLabel && (
+                                  <span
+                                    className={`text-xs font-semibold uppercase tracking-wide rounded-full border px-3 py-1 ${transcriptAccuracyBadgeStyles[rating]}`}
+                                  >
+                                    {ratingLabel}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {transcriptAccuracyOptions.map(option => {
+                                  const isActive = rating === option.value;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={option.value}
+                                      onClick={() => handleAccuracySelection(q.id, option.value)}
+                                      className={`px-3 py-1.5 text-sm font-medium rounded-full border transition ${
+                                        isActive
+                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                                          : "text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-700"
+                                      }`}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <p className="mt-3 text-xs text-gray-400">
+                                Ratings are local-only for the demo and help highlight transcripts that may need a manual review.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-red-500 text-center py-8">
