@@ -2,6 +2,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { BASE_URL } from "@/config";
 
+const FRONTEND_ASSIGNMENT_URL = "https://my-frontend-url.com/assignment";
+
 interface Question {
   id: string;
   type: "short" | "multiple" | "oral";
@@ -37,6 +39,33 @@ const ViewSubmissions = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [deletingAssignmentId, setDeletingAssignmentId] = useState<string | null>(null);
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [copiedAssignmentId, setCopiedAssignmentId] = useState<string | null>(null);
+
+  const getAssignmentLink = (assignmentId: string) =>
+    `${FRONTEND_ASSIGNMENT_URL}/${assignmentId}`;
+
+  const handleCopyAssignmentLink = async (assignmentId: string) => {
+    const link = getAssignmentLink(assignmentId);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        setCopiedAssignmentId(assignmentId);
+        return;
+      }
+      throw new Error("Clipboard API unavailable");
+    } catch (error) {
+      console.warn("Failed to copy assignment link automatically.", error);
+      if (typeof window !== "undefined") {
+        window.prompt("Copy assignment link:", link);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!copiedAssignmentId) return;
+    const timer = setTimeout(() => setCopiedAssignmentId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [copiedAssignmentId]);
 
   // Load all responses + assignments from backend
   useEffect(() => {
@@ -298,50 +327,80 @@ const ViewSubmissions = () => {
             </div>
           )}
 
-          {assignments.length === 0 ? (
-            <div className="bg-white border rounded-lg p-6 text-center text-gray-500">
-              No assignments available.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {assignments.map((assignment) => (
-                <div
-                  key={assignment.id}
-                  className="bg-white border rounded-lg shadow-sm p-4 flex flex-col"
-                >
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{assignment.title}</h3>
-                    {assignment.description && (
-                      <p className="text-sm text-gray-600 mt-1">{assignment.description}</p>
-                    )}
-                    <div className="mt-3 text-sm text-gray-500 space-y-1">
-                      {assignment.dueDate && (
-                        <p>Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
-                      )}
-                      <p>{assignment.questions?.length || 0} question{assignment.questions?.length !== 1 ? "s" : ""}</p>
-                      {assignment.createdAt && (
-                        <p>Created {new Date(assignment.createdAt).toLocaleDateString()}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex justify-end">
-                    <button
-                      onClick={() => handleDeleteAssignment(assignment.id)}
-                      disabled={deletingAssignmentId === assignment.id}
-                      className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                        deletingAssignmentId === assignment.id
-                          ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                          : "bg-red-100 text-red-700 hover:bg-red-200"
-                      }`}
+            {assignments.length === 0 ? (
+              <div className="bg-white border rounded-lg p-6 text-center text-gray-500">
+                No assignments available.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {assignments.map((assignment) => {
+                  const assignmentLink = getAssignmentLink(assignment.id);
+                  return (
+                    <div
+                      key={assignment.id}
+                      className="bg-white border rounded-lg shadow-sm p-4 flex flex-col"
                     >
-                      {deletingAssignmentId === assignment.id ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">{assignment.title}</h3>
+                        {assignment.description && (
+                          <p className="text-sm text-gray-600 mt-1">{assignment.description}</p>
+                        )}
+                        <div className="mt-3 text-sm text-gray-500 space-y-1">
+                          {assignment.dueDate && (
+                            <p>Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
+                          )}
+                          <p>{assignment.questions?.length || 0} question{assignment.questions?.length !== 1 ? "s" : ""}</p>
+                          {assignment.createdAt && (
+                            <p>Created {new Date(assignment.createdAt).toLocaleDateString()}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-900">
+                              Assignment Link
+                            </p>
+                            <a
+                              href={assignmentLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-medium text-blue-700 break-all hover:underline"
+                            >
+                              {assignmentLink}
+                            </a>
+                          </div>
+                          <button
+                            onClick={() => handleCopyAssignmentLink(assignment.id)}
+                            className="inline-flex items-center justify-center whitespace-nowrap rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-blue-700 shadow-sm ring-1 ring-inset ring-blue-200 transition-colors hover:bg-blue-50"
+                          >
+                            Copy Link
+                          </button>
+                        </div>
+                        {copiedAssignmentId === assignment.id && (
+                          <p className="mt-2 text-xs font-semibold text-green-600">Link copied!</p>
+                        )}
+                      </div>
+
+                      <div className="mt-4 flex justify-end">
+                        <button
+                          onClick={() => handleDeleteAssignment(assignment.id)}
+                          disabled={deletingAssignmentId === assignment.id}
+                          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                            deletingAssignmentId === assignment.id
+                              ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                              : "bg-red-100 text-red-700 hover:bg-red-200"
+                          }`}
+                        >
+                          {deletingAssignmentId === assignment.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
         </div>
 
       {/* Submissions Table */}
