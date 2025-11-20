@@ -35,6 +35,8 @@ const ViewSubmissions = () => {
   const [filterAssignment, setFilterAssignment] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "date" | "assignment">("date");
   const [searchTerm, setSearchTerm] = useState("");
+  const [deletingAssignmentId, setDeletingAssignmentId] = useState<string | null>(null);
+  const [deleteFeedback, setDeleteFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Load all responses + assignments from backend
   useEffect(() => {
@@ -113,6 +115,60 @@ const ViewSubmissions = () => {
 
     return groups;
   }, [assignments]);
+
+  const handleDeleteAssignment = async (assignmentId: string) => {
+    const assignment = assignments.find(a => a.id === assignmentId);
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this assignment? All submissions will be lost."
+    );
+    if (!confirmDelete) return;
+
+    setDeleteFeedback(null);
+    setDeletingAssignmentId(assignmentId);
+
+    try {
+      const response = await fetch(`${BASE_URL}/assignments/${assignmentId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = "Failed to delete assignment.";
+
+        if (errorText) {
+          try {
+            const parsed = JSON.parse(errorText);
+            errorMessage = parsed?.message || errorMessage;
+          } catch {
+            errorMessage = errorText;
+          }
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      setAssignments(prev => prev.filter(a => a.id !== assignmentId));
+      setSubmissions(prev => prev.filter(sub => sub.assignment_id !== assignmentId));
+
+      if (filterAssignment === assignmentId) {
+        setFilterAssignment("all");
+      }
+
+      setDeleteFeedback({
+        type: "success",
+        message: `"${assignment?.title || "Assignment"}" deleted successfully.`,
+      });
+    } catch (error) {
+      console.error("❌ Failed to delete assignment:", error);
+      setDeleteFeedback({
+        type: "error",
+        message:
+          error instanceof Error ? error.message : "Failed to delete assignment. Please try again.",
+      });
+    } finally {
+      setDeletingAssignmentId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -193,29 +249,100 @@ const ViewSubmissions = () => {
         </div>
       </div>
 
-      {/* Class Groups Section (Optional) */}
-      {Object.keys(assignmentGroups).length > 1 && (
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Classes/Groups</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Object.entries(assignmentGroups).map(([groupName, groupAssignments]) => (
-              <div key={groupName} className="bg-white border rounded-lg p-4 shadow-sm">
-                <h3 className="font-semibold text-gray-800 mb-2">{groupName}</h3>
-                <p className="text-sm text-gray-600">
-                  {groupAssignments.length} assignment{groupAssignments.length !== 1 ? 's' : ''}
-                </p>
-                <div className="mt-2 space-y-1">
-                  {groupAssignments.map(assignment => (
-                    <div key={assignment.id} className="text-xs text-gray-500 truncate">
-                      • {assignment.title}
-                    </div>
-                  ))}
+        {/* Class Groups Section (Optional) */}
+        {Object.keys(assignmentGroups).length > 1 && (
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Classes/Groups</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.entries(assignmentGroups).map(([groupName, groupAssignments]) => (
+                <div key={groupName} className="bg-white border rounded-lg p-4 shadow-sm">
+                  <h3 className="font-semibold text-gray-800 mb-2">{groupName}</h3>
+                  <p className="text-sm text-gray-600">
+                    {groupAssignments.length} assignment{groupAssignments.length !== 1 ? 's' : ''}
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {groupAssignments.map(assignment => (
+                      <div key={assignment.id} className="text-xs text-gray-500 truncate">
+                        • {assignment.title}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+        )}
+
+        {/* Assignments List */}
+        <div className="mb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Assignments</h2>
+              <p className="text-sm text-gray-600">
+                Manage assignments and remove those you no longer need.
+              </p>
+            </div>
+            <span className="text-sm text-gray-500">{assignments.length} total</span>
+          </div>
+
+          {deleteFeedback && (
+            <div
+              className={`mb-4 rounded-md border px-4 py-3 text-sm ${
+                deleteFeedback.type === "success"
+                  ? "border-green-200 bg-green-50 text-green-800"
+                  : "border-red-200 bg-red-50 text-red-800"
+              }`}
+              role="alert"
+            >
+              {deleteFeedback.message}
+            </div>
+          )}
+
+          {assignments.length === 0 ? (
+            <div className="bg-white border rounded-lg p-6 text-center text-gray-500">
+              No assignments available.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {assignments.map((assignment) => (
+                <div
+                  key={assignment.id}
+                  className="bg-white border rounded-lg shadow-sm p-4 flex flex-col"
+                >
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{assignment.title}</h3>
+                    {assignment.description && (
+                      <p className="text-sm text-gray-600 mt-1">{assignment.description}</p>
+                    )}
+                    <div className="mt-3 text-sm text-gray-500 space-y-1">
+                      {assignment.dueDate && (
+                        <p>Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
+                      )}
+                      <p>{assignment.questions?.length || 0} question{assignment.questions?.length !== 1 ? "s" : ""}</p>
+                      {assignment.createdAt && (
+                        <p>Created {new Date(assignment.createdAt).toLocaleDateString()}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={() => handleDeleteAssignment(assignment.id)}
+                      disabled={deletingAssignmentId === assignment.id}
+                      className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                        deletingAssignmentId === assignment.id
+                          ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                          : "bg-red-100 text-red-700 hover:bg-red-200"
+                      }`}
+                    >
+                      {deletingAssignmentId === assignment.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
 
       {/* Submissions Table */}
       {filteredSubmissions.length === 0 ? (
