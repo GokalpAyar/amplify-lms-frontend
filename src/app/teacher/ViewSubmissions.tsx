@@ -40,32 +40,6 @@ interface AudioMetaState {
   error?: string | null;
 }
 
-type AccuracyStatus = "idle" | "saving" | "saved" | "error";
-
-interface AccuracyDraft {
-  rating: number | null;
-  note: string;
-  flagBias: boolean;
-  status: AccuracyStatus;
-  error?: string | null;
-  lastSavedAt?: string;
-}
-
-interface TranscriptionFeedbackEntry {
-  rating: number;
-  note?: string;
-  flagBias?: boolean;
-  updatedAt?: string;
-}
-
-interface StudentAccuracyRatingEntry {
-  rating: number;
-  comment?: string;
-  updatedAt?: string;
-}
-
-type StudentAccuracyRatingMap = Record<string, StudentAccuracyRatingEntry>;
-
 const SUPPORTED_MIME_TYPES = ["audio/webm", "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg"];
 const SUPPORTED_AUDIO_LABELS = Array.from(
   new Set(
@@ -300,10 +274,8 @@ interface StudentResponse {
   transcripts: Record<string, string>;
   submittedAt: string;
   audioResponses?: Record<string, AnswerValue>;
-  transcriptionFeedback?: Record<string, TranscriptionFeedbackEntry>;
-  studentAccuracyRatings?: StudentAccuracyRatingMap;
-  accuracyRatings?: StudentAccuracyRatingMap;
-  student_accuracy_ratings?: StudentAccuracyRatingMap;
+  student_accuracy_rating?: number | string | null;
+  student_rating_comment?: string | null;
 }
 
 const ViewSubmissions = () => {
@@ -318,7 +290,6 @@ const ViewSubmissions = () => {
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedAssignmentId, setCopiedAssignmentId] = useState<string | null>(null);
   const [audioStates, setAudioStates] = useState<Record<string, AudioMetaState>>({});
-  const [accuracyFeedback, setAccuracyFeedback] = useState<Record<string, AccuracyDraft>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
   const getAssignmentLink = (assignmentId: string) =>
@@ -366,20 +337,9 @@ const ViewSubmissions = () => {
       }, {});
   }, [selected, activeAssignment]);
 
-    const studentRatingMap = useMemo<StudentAccuracyRatingMap>(() => {
-      if (!selected) return {};
-      return (
-        selected.studentAccuracyRatings ??
-        selected.accuracyRatings ??
-        selected.student_accuracy_ratings ??
-        {}
-      );
-    }, [selected]);
-
   useEffect(() => {
     if (!selected || !activeAssignment) {
       setAudioStates({});
-      setAccuracyFeedback({});
       audioRefs.current = {};
       return;
     }
@@ -404,22 +364,6 @@ const ViewSubmissions = () => {
         }
       });
     setAudioStates(nextAudioStates);
-
-    const nextAccuracy: Record<string, AccuracyDraft> = {};
-    activeAssignment.questions
-      .filter((q) => q.type === "oral")
-      .forEach((question) => {
-        const existing = selected.transcriptionFeedback?.[question.id];
-        nextAccuracy[question.id] = {
-          rating: existing?.rating ?? null,
-          note: existing?.note ?? "",
-          flagBias: existing?.flagBias ?? false,
-          status: existing ? "saved" : "idle",
-          error: null,
-          lastSavedAt: existing?.updatedAt,
-        };
-      });
-    setAccuracyFeedback(nextAccuracy);
 
     audioRefs.current = {};
   }, [selected, activeAssignment, oralResponsePayloads]);
@@ -513,73 +457,6 @@ const ViewSubmissions = () => {
     const source = oralResponsePayloads[questionId]?.sources?.[0];
     if (source?.url) {
       requestFileSize(questionId, source.url);
-    }
-  };
-
-  const updateAccuracyDraft = (questionId: string, partial: Partial<AccuracyDraft>) => {
-    setAccuracyFeedback((prev) => {
-      const existing = prev[questionId] ?? { rating: null, note: "", flagBias: false, status: "idle", error: null as string | null };
-      return {
-        ...prev,
-        [questionId]: { ...existing, ...partial },
-      };
-    });
-  };
-
-  const handleAccuracyRatingChange = (questionId: string, rating: number) => {
-    updateAccuracyDraft(questionId, { rating, status: "idle", error: null });
-  };
-
-  const handleAccuracyNoteChange = (questionId: string, note: string) => {
-    updateAccuracyDraft(questionId, { note, status: "idle" });
-  };
-
-  const handleFlagBiasToggle = (questionId: string) => {
-    setAccuracyFeedback((prev) => {
-      const existing = prev[questionId] ?? { rating: null, note: "", flagBias: false, status: "idle", error: null };
-      return {
-        ...prev,
-        [questionId]: { ...existing, flagBias: !existing.flagBias, status: "idle" },
-      };
-    });
-  };
-
-  const handleSaveAccuracy = async (questionId: string) => {
-    if (!selected) return;
-    const entry = accuracyFeedback[questionId];
-    if (!entry?.rating) {
-      updateAccuracyDraft(questionId, { error: "Select a rating before saving." });
-      return;
-    }
-
-    updateAccuracyDraft(questionId, { status: "saving", error: null });
-
-    try {
-      const response = await fetch(`${BASE_URL}/responses/${selected.id}/transcription-feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          questionId,
-          rating: entry.rating,
-          note: entry.note?.trim() || undefined,
-          flagBias: entry.flagBias,
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Failed to save feedback.");
-      }
-
-      updateAccuracyDraft(questionId, {
-        status: "saved",
-        lastSavedAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      updateAccuracyDraft(questionId, {
-        status: "error",
-        error: error instanceof Error ? error.message : "Failed to save feedback.",
-      });
     }
   };
 
@@ -950,6 +827,9 @@ const ViewSubmissions = () => {
                     Submitted
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Student Rating
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -957,6 +837,10 @@ const ViewSubmissions = () => {
               <tbody className="divide-y divide-gray-200">
                 {filteredSubmissions.map((sub) => {
                   const assignment = assignments.find(a => a.id === sub.assignment_id);
+                  const studentRatingValue = safeNumber(sub.student_accuracy_rating);
+                  const hasStudentRating = typeof studentRatingValue === "number" && studentRatingValue > 0;
+                  const studentRatingDisplay = hasStudentRating ? renderStudentStars(studentRatingValue) : null;
+                  const studentRatingComment = sub.student_rating_comment?.trim();
                   return (
                     <tr key={sub.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -978,6 +862,25 @@ const ViewSubmissions = () => {
                         <div className="text-sm text-gray-400">
                           {new Date(sub.submittedAt).toLocaleTimeString()}
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">
+                        {studentRatingDisplay ? (
+                          <div className="space-y-1">
+                            <p className="font-medium text-gray-800">
+                              Student Rating:{" "}
+                              <span className="text-yellow-600">
+                                {studentRatingDisplay.stars} ({studentRatingDisplay.clamped}/5)
+                              </span>
+                            </p>
+                            {studentRatingComment && (
+                              <p className="text-gray-600">
+                                Student Comment: <span className="text-gray-800">{studentRatingComment}</span>
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-gray-500">No student rating yet</p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -1042,12 +945,6 @@ const ViewSubmissions = () => {
                         const transcriptText = isOral
                           ? oralBundle?.transcript ?? selected.transcripts?.[q.id] ?? "No transcript available."
                           : "";
-                        const accuracyEntry = isOral ? accuracyFeedback[q.id] : undefined;
-                        const studentAccuracyEntry = isOral ? studentRatingMap[q.id] : undefined;
-                        const studentStarDisplay =
-                          studentAccuracyEntry?.rating != null
-                            ? renderStudentStars(studentAccuracyEntry.rating)
-                            : null;
                         const formatBadges = isOral
                           ? ((oralBundle?.sources || [])
                               .map((source) => {
@@ -1218,95 +1115,7 @@ const ViewSubmissions = () => {
                                 </div>
                               </div>
 
-                                {studentStarDisplay && (
-                                  <div className="rounded-lg border border-yellow-100 bg-yellow-50 p-4 space-y-1">
-                                    <p className="text-sm font-semibold text-gray-800">
-                                      Student Accuracy Rating:{" "}
-                                      <span className="text-yellow-600">
-                                        {studentStarDisplay.stars} ({studentStarDisplay.clamped}/5)
-                                      </span>
-                                    </p>
-                                    {studentAccuracyEntry.comment && (
-                                      <p className="text-sm text-gray-700">
-                                        <span className="font-semibold">Student comment:</span>{" "}
-                                        {studentAccuracyEntry.comment}
-                                      </p>
-                                    )}
-                                    {studentAccuracyEntry.updatedAt && (
-                                      <p className="text-xs text-gray-500">
-                                        Submitted {new Date(studentAccuracyEntry.updatedAt).toLocaleString()}
-                                      </p>
-                                    )}
-                                  </div>
-                                )}
-
-                              <div className="rounded-lg border bg-gray-50 p-4">
-                                <div className="flex items-center justify-between mb-1">
-                                  <p className="font-semibold text-gray-800">Transcription Accuracy</p>
-                                  {accuracyEntry?.status === "saved" && (
-                                    <span className="text-xs text-green-600">
-                                      Saved{" "}
-                                      {accuracyEntry.lastSavedAt
-                                        ? new Date(accuracyEntry.lastSavedAt).toLocaleTimeString()
-                                        : ""}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-sm text-gray-600">
-                                  Rate how well the transcript matches the student's voice for bias monitoring.
-                                </p>
-                                <div className="mt-3 flex items-center gap-2">
-                                  {[1, 2, 3, 4, 5].map((score) => (
-                                    <button
-                                      key={score}
-                                      onClick={() => handleAccuracyRatingChange(q.id, score)}
-                                      className={`h-9 w-9 rounded-full border text-sm font-semibold ${
-                                        (accuracyEntry?.rating ?? 0) >= score
-                                          ? "border-purple-600 bg-purple-600 text-white"
-                                          : "border-gray-300 bg-white text-gray-600"
-                                      }`}
-                                      aria-label={`Accuracy rating ${score}`}
-                                    >
-                                      {score}
-                                    </button>
-                                  ))}
-                                  <span className="text-xs text-gray-500">1 = low, 5 = perfect</span>
-                                </div>
-                                <label className="mt-3 block text-sm font-medium text-gray-700">
-                                  Context / Bias Notes
-                                  <textarea
-                                    value={accuracyEntry?.note ?? ""}
-                                    onChange={(e) => handleAccuracyNoteChange(q.id, e.target.value)}
-                                    rows={3}
-                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Document pronunciation mismatches, dialect issues, or bias cues…"
-                                  />
-                                </label>
-                                <label className="mt-3 inline-flex items-center gap-2 text-sm text-gray-700">
-                                  <input
-                                    type="checkbox"
-                                    checked={accuracyEntry?.flagBias ?? false}
-                                    onChange={() => handleFlagBiasToggle(q.id)}
-                                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                                  />
-                                  Flag for bias investigation
-                                </label>
-                                <div className="mt-4 flex flex-wrap items-center gap-3">
-                                  <button
-                                    onClick={() => handleSaveAccuracy(q.id)}
-                                    disabled={accuracyEntry?.status === "saving"}
-                                    className="rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                  >
-                                    {accuracyEntry?.status === "saving" ? "Saving..." : "Save Rating"}
-                                  </button>
-                                  {accuracyEntry?.status === "error" && (
-                                    <span className="text-sm text-red-600">{accuracyEntry.error}</span>
-                                  )}
-                                  {accuracyEntry?.status === "saved" && (
-                                    <span className="text-sm text-green-600">Feedback saved</span>
-                                  )}
-                                </div>
-                              </div>
+                              {/* Student ratings move to submissions list; transcription accuracy tools removed */}
                             </div>
                           )}
                         </div>
