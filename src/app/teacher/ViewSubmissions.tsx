@@ -521,22 +521,30 @@ const ViewSubmissions = () => {
     return filtered;
   }, [submissions, assignments, filterAssignment, sortBy, searchTerm]);
 
-  // Group assignments by class (you can enhance this with actual class data later)
-  const assignmentGroups = useMemo(() => {
-    // For now, we'll group by assignment title pattern or you can add a "class" field later
-    const groups: Record<string, Assignment[]> = {};
-    
-    assignments.forEach(assignment => {
-      // Simple grouping by first word of title (you can change this logic)
-      const groupName = assignment.title.split(' ')[0] || 'Other';
-      if (!groups[groupName]) {
-        groups[groupName] = [];
-      }
-      groups[groupName].push(assignment);
-    });
+    // Group assignments by class (you can enhance this with actual class data later)
+    const assignmentGroups = useMemo(() => {
+      // For now, we'll group by assignment title pattern or you can add a "class" field later
+      const groups: Record<string, Assignment[]> = {};
 
-    return groups;
-  }, [assignments]);
+      assignments.forEach((assignment) => {
+        // Simple grouping by first word of title (you can change this logic)
+        const groupName = assignment.title.split(" ")[0] || "Other";
+        if (!groups[groupName]) {
+          groups[groupName] = [];
+        }
+        groups[groupName].push(assignment);
+      });
+
+      return groups;
+    }, [assignments]);
+
+    const selectedStudentRatingValue = selected ? safeNumber(selected.student_accuracy_rating) : undefined;
+    const selectedStudentRatingDisplay =
+      typeof selectedStudentRatingValue === "number" && selectedStudentRatingValue > 0
+        ? renderStudentStars(selectedStudentRatingValue)
+        : null;
+    const selectedStudentRatingComment =
+      typeof selected?.student_rating_comment === "string" ? selected.student_rating_comment.trim() : "";
 
   const handleDeleteAssignment = async (assignmentId: string) => {
     const assignment = assignments.find(a => a.id === assignmentId);
@@ -1115,12 +1123,36 @@ const ViewSubmissions = () => {
                                 </div>
                               </div>
 
-                              {/* Student ratings move to submissions list; transcription accuracy tools removed */}
                             </div>
                           )}
                         </div>
                       );
                     })}
+
+                      <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+                        <h4 className="text-lg font-semibold text-yellow-900 mb-2">Student Self-Rating</h4>
+                        {selectedStudentRatingDisplay ? (
+                          <div className="space-y-2 text-yellow-900">
+                            <p className="font-medium">
+                              Student Rating:{" "}
+                              <span className="text-xl">{selectedStudentRatingDisplay.stars}</span>{" "}
+                              <span className="text-sm text-yellow-800">
+                                ({selectedStudentRatingDisplay.clamped}/5)
+                              </span>
+                            </p>
+                            {selectedStudentRatingComment && (
+                              <p className="text-sm">
+                                Student Comment:{" "}
+                                <span className="font-medium text-yellow-900">
+                                  {selectedStudentRatingComment}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-yellow-900">No student rating yet.</p>
+                        )}
+                      </div>
                   </div>
                 ) : (
                   <p className="text-red-500 text-center py-8">
