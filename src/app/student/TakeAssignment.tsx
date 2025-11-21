@@ -23,6 +23,54 @@ interface Assignment {
   questions: Question[];
 }
 
+type RatingStatus = "idle" | "saving" | "saved" | "error";
+
+interface StudentAccuracyRatingEntry {
+  rating: number;
+  comment?: string;
+  updatedAt?: string;
+}
+
+const clampRating = (value: number) => Math.min(5, Math.max(1, Math.round(value)));
+
+const normalizeStudentRatingMap = (input: unknown): Record<string, StudentAccuracyRatingEntry> => {
+  if (!input || typeof input !== "object") return {};
+
+  return Object.entries(input as Record<string, any>).reduce<Record<string, StudentAccuracyRatingEntry>>(
+    (acc, [questionId, value]) => {
+      if (value == null) return acc;
+
+      if (typeof value === "number" || typeof value === "string") {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) {
+          acc[questionId] = { rating: clampRating(parsed) };
+        }
+        return acc;
+      }
+
+      if (typeof value === "object") {
+        const maybeEntry = value as Record<string, any>;
+        const parsed = Number(maybeEntry.rating ?? maybeEntry.score ?? maybeEntry.value);
+        if (Number.isFinite(parsed)) {
+          acc[questionId] = {
+            rating: clampRating(parsed),
+            comment:
+              typeof maybeEntry.comment === "string"
+                ? maybeEntry.comment
+                : typeof maybeEntry.note === "string"
+                ? maybeEntry.note
+                : undefined,
+            updatedAt: typeof maybeEntry.updatedAt === "string" ? maybeEntry.updatedAt : undefined,
+          };
+        }
+      }
+
+      return acc;
+    },
+    {}
+  );
+};
+
 const formatSeconds = (total: number | undefined | null) => {
   if (!total || total <= 0) return "0:00";
   const m = Math.floor(total / 60);
@@ -43,6 +91,11 @@ export default function TakeAssignment() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [transcripts, setTranscripts] = useState<Record<string, string>>({});
   const [currentIdx, setCurrentIdx] = useState(0);
+  const [submittedResponseId, setSubmittedResponseId] = useState<string | null>(null);
+  const [accuracyRatings, setAccuracyRatings] = useState<Record<string, number | null>>({});
+  const [accuracyComments, setAccuracyComments] = useState<Record<string, string>>({});
+  const [ratingStatus, setRatingStatus] = useState<Record<string, RatingStatus>>({});
+  const [ratingErrors, setRatingErrors] = useState<Record<string, string | null>>({});
 
   const [questionTimeLeft, setQuestionTimeLeft] = useState<number | null>(null);
   const [assignmentTimeLeft, setAssignmentTimeLeft] = useState<number | null>(null);
@@ -156,11 +209,64 @@ export default function TakeAssignment() {
     }
   };
 
+  const hydrateRatingsFromMap = (entries: Record<string, StudentAccuracyRatingEntry>) => {
+    if (!entries || !Object.keys(entries).length) return;
+
+    setAccuracyRatings((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.entries(entries).forEach(([questionId, entry]) => {
+        if (next[questionId] !== entry.rating) {
+          next[questionId] = entry.rating;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+
+    setAccuracyComments((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.entries(entries).forEach(([questionId, entry]) => {
+        const commentValue = entry.comment ?? "";
+        if (next[questionId] !== commentValue) {
+          next[questionId] = commentValue;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+
+    setRatingStatus((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.keys(entries).forEach((questionId) => {
+        if (next[questionId] !== "saved") {
+          next[questionId] = "saved";
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+
+    setRatingErrors((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.keys(entries).forEach((questionId) => {
+        if (next[questionId] !== null) {
+          next[questionId] = null;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  };
+
   // 🆕 FIXED: Added loading state to prevent duplicate submissions
   const handleSubmit = async () => {
     // Prevent multiple submissions
     if (submitting || submitted || !assignment || !assignmentId) return;
-    
+
     if (!studentName.trim() || !jNumber.trim()) {
       alert("Please enter your name and J-number before submitting.");
       return;
@@ -168,12 +274,12 @@ export default function TakeAssignment() {
 
     setSubmitting(true); // 🔒 Lock the submit
 
-    const submission = { 
-      assignment_id: assignmentId, 
-      studentName: studentName.trim(), 
-      jNumber: jNumber.trim(), 
-      answers, 
-      transcripts 
+    const submission = {
+      assignment_id: assignmentId,
+      studentName: studentName.trim(),
+      jNumber: jNumber.trim(),
+      answers,
+      transcripts,
     };
 
     try {
@@ -183,21 +289,149 @@ export default function TakeAssignment() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(submission),
       });
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Submission failed with status ${res.status}`);
+
+      const rawBody = await res.text();
+      let parsedBody: any = null;
+      if (rawBody) {
+        try {
+          parsedBody = JSON.parse(rawBody);
+        } catch {
+          parsedBody = null;
+        }
       }
-      
+
+      if (!res.ok) {
+        const errorMessage =
+          (parsedBody && (parsedBody.detail || parsedBody.message || parsedBody.error)) ||
+          rawBody ||
+          `Submission failed with status ${res.status}`;
+        throw new Error(errorMessage);
+      }
+
       console.log("✅ Submission successful");
       localStorage.removeItem(draftKey);
+
+      const responseIdFromBody =
+        parsedBody?.id ||
+        parsedBody?._id ||
+        parsedBody?.responseId ||
+        parsedBody?.response_id ||
+        null;
+      const responseIdFromHeader = res.headers.get("Location")?.split("/").filter(Boolean).pop() || null;
+      const resolvedResponseId = responseIdFromBody || responseIdFromHeader;
+
+      if (resolvedResponseId) {
+        setSubmittedResponseId(resolvedResponseId);
+      } else {
+        console.warn("⚠️ No response ID returned; transcript accuracy ratings will remain disabled.");
+      }
+
+      if (parsedBody) {
+        const ratingPayload = normalizeStudentRatingMap(
+          parsedBody.studentAccuracyRatings ??
+            parsedBody.student_accuracy_ratings ??
+            parsedBody.accuracyRatings ??
+            parsedBody.accuracy_rating ??
+            parsedBody.accuracy
+        );
+        hydrateRatingsFromMap(ratingPayload);
+      }
+
       setSubmitted(true);
-      
     } catch (err) {
       console.error("❌ Submission error:", err);
-      alert(`Error submitting your responses: ${err.message}`);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      alert(`Error submitting your responses: ${message}`);
     } finally {
       setSubmitting(false); // 🔓 Unlock the submit
+    }
+  };
+
+  const handleAccuracyStarSelect = (questionId: string, value: number) => {
+    setAccuracyRatings((prev) => ({ ...prev, [questionId]: clampRating(value) }));
+    setRatingStatus((prev) => {
+      if (prev[questionId] === "saving") return prev;
+      return { ...prev, [questionId]: "idle" };
+    });
+    setRatingErrors((prev) => ({ ...prev, [questionId]: null }));
+  };
+
+  const handleAccuracyCommentChange = (questionId: string, value: string) => {
+    setAccuracyComments((prev) => ({ ...prev, [questionId]: value }));
+    setRatingStatus((prev) => {
+      if (prev[questionId] === "saving") return prev;
+      return { ...prev, [questionId]: prev[questionId] === "saved" ? "idle" : prev[questionId] ?? "idle" };
+    });
+    setRatingErrors((prev) => ({ ...prev, [questionId]: null }));
+  };
+
+  const handleSaveAccuracyRating = async (questionId: string) => {
+    const rating = accuracyRatings[questionId];
+    if (!rating) {
+      setRatingErrors((prev) => ({ ...prev, [questionId]: "Select a rating before saving." }));
+      return;
+    }
+
+    if (!submittedResponseId) {
+      setRatingErrors((prev) => ({
+        ...prev,
+        [questionId]: "Submit your assignment to enable saving this rating.",
+      }));
+      return;
+    }
+
+    setRatingStatus((prev) => ({ ...prev, [questionId]: "saving" }));
+    setRatingErrors((prev) => ({ ...prev, [questionId]: null }));
+
+    try {
+      const res = await fetch(`${BASE_URL}/responses/${submittedResponseId}/accuracy-rating`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          questionId,
+          rating,
+          comment: accuracyComments[questionId]?.trim() || undefined,
+        }),
+      });
+
+      const payloadText = await res.text();
+      let payloadJson: any = null;
+      if (payloadText) {
+        try {
+          payloadJson = JSON.parse(payloadText);
+        } catch {
+          payloadJson = null;
+        }
+      }
+
+      if (!res.ok) {
+        const errorMessage =
+          (payloadJson && (payloadJson.detail || payloadJson.message || payloadJson.error)) ||
+          payloadText ||
+          "Failed to save rating.";
+        throw new Error(errorMessage);
+      }
+
+      if (payloadJson) {
+        const ratingPayload = normalizeStudentRatingMap(
+          payloadJson.studentAccuracyRatings ??
+            payloadJson.student_accuracy_ratings ??
+            payloadJson.accuracyRatings ??
+            payloadJson.accuracy_rating ??
+            payloadJson.accuracy ??
+            payloadJson
+        );
+        hydrateRatingsFromMap(ratingPayload);
+        if (!ratingPayload[questionId]) {
+          setRatingStatus((prev) => ({ ...prev, [questionId]: "saved" }));
+        }
+      } else {
+        setRatingStatus((prev) => ({ ...prev, [questionId]: "saved" }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save rating.";
+      setRatingErrors((prev) => ({ ...prev, [questionId]: message }));
+      setRatingStatus((prev) => ({ ...prev, [questionId]: "error" }));
     }
   };
 
@@ -212,13 +446,118 @@ export default function TakeAssignment() {
       </div>
     );
 
-  if (submitted)
-    return (
-      <div className="max-w-2xl mx-auto p-6 bg-green-50 rounded-xl shadow text-center">
-        <h1 className="text-2xl font-semibold text-green-700 mb-2">✅ Submitted!</h1>
-        <p>Your responses and transcripts have been sent successfully.</p>
-      </div>
-    );
+    if (submitted) {
+      const oralQuestions = assignment.questions.filter((question) => question.type === "oral");
+
+      return (
+        <div className="max-w-3xl mx-auto p-6 bg-white rounded-xl shadow space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-2xl font-semibold text-green-700">✅ Submitted!</h1>
+            <p className="text-gray-700">Thanks for completing {assignment.title}.</p>
+            <p className="text-sm text-gray-500">
+              Rate the transcript accuracy below to help improve speech recognition.
+            </p>
+          </div>
+
+          {oralQuestions.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-gray-600">
+              This assignment didn&apos;t include any oral responses, so there&apos;s nothing to rate.
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {oralQuestions.map((question, index) => {
+                const transcriptText = transcripts[question.id] || answers[question.id] || "";
+                const ratingValue = accuracyRatings[question.id] ?? null;
+                const status = ratingStatus[question.id] ?? "idle";
+                const error = ratingErrors[question.id];
+                const commentValue = accuracyComments[question.id] ?? "";
+                const saveDisabled = !submittedResponseId || !ratingValue || status === "saving";
+
+                return (
+                  <div key={question.id} className="rounded-xl border border-gray-200 bg-gray-50 p-5 space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Oral Response {index + 1}
+                      </p>
+                      <p className="text-base font-semibold text-gray-800">{question.text}</p>
+                    </div>
+
+                    <div className="rounded-lg bg-white p-3 shadow-inner">
+                      <p className="text-sm font-medium text-gray-600 mb-1">My transcript</p>
+                      <p className="text-gray-800 whitespace-pre-wrap text-sm">
+                        {transcriptText || "No transcript captured for this response."}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">Rate transcript accuracy:</p>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((score) => (
+                          <button
+                            key={score}
+                            type="button"
+                            onClick={() => handleAccuracyStarSelect(question.id, score)}
+                            className="rounded-full p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-yellow-400"
+                            aria-label={`Set transcript accuracy rating to ${score} out of 5`}
+                          >
+                            <span
+                              className={`text-2xl ${
+                                ratingValue && ratingValue >= score ? "text-yellow-500" : "text-gray-300"
+                              }`}
+                            >
+                              ★
+                            </span>
+                          </button>
+                        ))}
+                        {ratingValue && (
+                          <span className="text-sm font-medium text-gray-600">{ratingValue}/5</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <label className="block text-sm font-medium text-gray-700">
+                      Add comments about transcription accuracy
+                      <textarea
+                        value={commentValue}
+                        onChange={(event) => handleAccuracyCommentChange(question.id, event.target.value)}
+                        rows={3}
+                        className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Optional: mention pronunciation issues, missed words, or anything else."
+                      />
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleSaveAccuracyRating(question.id)}
+                        disabled={saveDisabled}
+                        className={`rounded-md px-4 py-2 text-sm font-semibold text-white transition-colors ${
+                          saveDisabled
+                            ? "bg-gray-400 cursor-not-allowed"
+                            : "bg-blue-600 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                        }`}
+                      >
+                        {status === "saving" ? "Saving..." : "Save Rating"}
+                      </button>
+                      {status === "saved" && (
+                        <span className="text-sm font-semibold text-green-600">Rating saved</span>
+                      )}
+                    </div>
+
+                    {error && <p className="text-sm text-red-600">{error}</p>}
+                    {!submittedResponseId && (
+                      <p className="text-sm text-amber-600">
+                        Your submission is still finalizing. Ratings will sync once it&apos;s ready.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
 
   if (!started)
     return (

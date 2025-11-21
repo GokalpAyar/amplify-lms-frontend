@@ -58,6 +58,14 @@ interface TranscriptionFeedbackEntry {
   updatedAt?: string;
 }
 
+interface StudentAccuracyRatingEntry {
+  rating: number;
+  comment?: string;
+  updatedAt?: string;
+}
+
+type StudentAccuracyRatingMap = Record<string, StudentAccuracyRatingEntry>;
+
 const SUPPORTED_MIME_TYPES = ["audio/webm", "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/ogg"];
 const SUPPORTED_AUDIO_LABELS = Array.from(
   new Set(
@@ -239,6 +247,15 @@ const formatDuration = (seconds?: number) => {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
+const clampStudentRating = (value: number) => Math.min(5, Math.max(1, Math.round(value)));
+
+const renderStudentStars = (value: number) => {
+  const clamped = clampStudentRating(value);
+  const filled = "⭐".repeat(clamped);
+  const empty = "☆".repeat(5 - clamped);
+  return { stars: `${filled}${empty}`, clamped };
+};
+
 const resolveAnswerText = (value: AnswerValue) => {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -284,6 +301,9 @@ interface StudentResponse {
   submittedAt: string;
   audioResponses?: Record<string, AnswerValue>;
   transcriptionFeedback?: Record<string, TranscriptionFeedbackEntry>;
+  studentAccuracyRatings?: StudentAccuracyRatingMap;
+  accuracyRatings?: StudentAccuracyRatingMap;
+  student_accuracy_ratings?: StudentAccuracyRatingMap;
 }
 
 const ViewSubmissions = () => {
@@ -345,6 +365,16 @@ const ViewSubmissions = () => {
         return acc;
       }, {});
   }, [selected, activeAssignment]);
+
+    const studentRatingMap = useMemo<StudentAccuracyRatingMap>(() => {
+      if (!selected) return {};
+      return (
+        selected.studentAccuracyRatings ??
+        selected.accuracyRatings ??
+        selected.student_accuracy_ratings ??
+        {}
+      );
+    }, [selected]);
 
   useEffect(() => {
     if (!selected || !activeAssignment) {
@@ -1004,33 +1034,38 @@ const ViewSubmissions = () => {
                     </div>
 
                     {activeAssignment.questions.map((q, i) => {
-                      const answerValue = selected.answers?.[q.id];
-                      const answerText = resolveAnswerText(answerValue);
-                      const isOral = q.type === "oral";
-                      const oralBundle = isOral ? oralResponsePayloads[q.id] : null;
-                      const audioState = isOral ? audioStates[q.id] : undefined;
-                      const transcriptText = isOral
-                        ? oralBundle?.transcript ?? selected.transcripts?.[q.id] ?? "No transcript available."
-                        : "";
-                      const accuracyEntry = isOral ? accuracyFeedback[q.id] : undefined;
-                      const formatBadges = isOral
-                        ? ((oralBundle?.sources || [])
-                            .map((source) => {
-                              if (source.mimeType) {
-                                const [, subtype] = source.mimeType.split("/");
-                                return (subtype || source.mimeType).toUpperCase();
-                              }
-                              const ext = source.url.split(".").pop();
-                              return ext ? ext.toUpperCase() : null;
-                            })
-                            .filter(Boolean) as string[])
-                        : [];
-                      const availableFormats = isOral
-                        ? formatBadges.length > 0
-                          ? formatBadges.join(" · ")
-                          : SUPPORTED_AUDIO_LABELS.join(" · ")
-                        : "";
-                      const hasAudioSources = isOral ? Boolean(oralBundle?.sources?.length) : false;
+                        const answerValue = selected.answers?.[q.id];
+                        const answerText = resolveAnswerText(answerValue);
+                        const isOral = q.type === "oral";
+                        const oralBundle = isOral ? oralResponsePayloads[q.id] : null;
+                        const audioState = isOral ? audioStates[q.id] : undefined;
+                        const transcriptText = isOral
+                          ? oralBundle?.transcript ?? selected.transcripts?.[q.id] ?? "No transcript available."
+                          : "";
+                        const accuracyEntry = isOral ? accuracyFeedback[q.id] : undefined;
+                        const studentAccuracyEntry = isOral ? studentRatingMap[q.id] : undefined;
+                        const studentStarDisplay =
+                          studentAccuracyEntry?.rating != null
+                            ? renderStudentStars(studentAccuracyEntry.rating)
+                            : null;
+                        const formatBadges = isOral
+                          ? ((oralBundle?.sources || [])
+                              .map((source) => {
+                                if (source.mimeType) {
+                                  const [, subtype] = source.mimeType.split("/");
+                                  return (subtype || source.mimeType).toUpperCase();
+                                }
+                                const ext = source.url.split(".").pop();
+                                return ext ? ext.toUpperCase() : null;
+                              })
+                              .filter(Boolean) as string[])
+                          : [];
+                        const availableFormats = isOral
+                          ? formatBadges.length > 0
+                            ? formatBadges.join(" · ")
+                            : SUPPORTED_AUDIO_LABELS.join(" · ")
+                          : "";
+                        const hasAudioSources = isOral ? Boolean(oralBundle?.sources?.length) : false;
 
                       return (
                         <div key={q.id} className="border-l-4 border-blue-500 pl-4 py-2 space-y-4">
@@ -1182,6 +1217,28 @@ const ViewSubmissions = () => {
                                   )}
                                 </div>
                               </div>
+
+                                {studentStarDisplay && (
+                                  <div className="rounded-lg border border-yellow-100 bg-yellow-50 p-4 space-y-1">
+                                    <p className="text-sm font-semibold text-gray-800">
+                                      Student Accuracy Rating:{" "}
+                                      <span className="text-yellow-600">
+                                        {studentStarDisplay.stars} ({studentStarDisplay.clamped}/5)
+                                      </span>
+                                    </p>
+                                    {studentAccuracyEntry.comment && (
+                                      <p className="text-sm text-gray-700">
+                                        <span className="font-semibold">Student comment:</span>{" "}
+                                        {studentAccuracyEntry.comment}
+                                      </p>
+                                    )}
+                                    {studentAccuracyEntry.updatedAt && (
+                                      <p className="text-xs text-gray-500">
+                                        Submitted {new Date(studentAccuracyEntry.updatedAt).toLocaleString()}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
 
                               <div className="rounded-lg border bg-gray-50 p-4">
                                 <div className="flex items-center justify-between mb-1">
