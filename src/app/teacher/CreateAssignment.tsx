@@ -171,8 +171,8 @@ const removeLocalDraft = () => {
   }
 };
 
-    export default function CreateAssignment() {
-      const { isLoaded, user } = useAuth();
+  export default function CreateAssignment() {
+    const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isQuiz, setIsQuiz] = useState(false);
@@ -691,14 +691,10 @@ const removeLocalDraft = () => {
     }
   };
 
-    // ==========================================================
-    // UI
-    // ==========================================================
-    if (!isLoaded || !user) {
-      return <div>Loading...</div>;
-    }
-
-    return (
+  // ==========================================================
+  // UI
+  // ==========================================================
+  return (
     <div className="mx-auto max-w-3xl p-6">
       <h1 className="text-2xl font-semibold mb-4">Create Assignment</h1>
 
