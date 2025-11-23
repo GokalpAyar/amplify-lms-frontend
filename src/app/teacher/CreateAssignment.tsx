@@ -6,6 +6,7 @@ import {
   useRef,
   type ChangeEvent,
 } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import { nanoid } from "nanoid";
 import { BASE_URL } from "@/config";
 
@@ -171,6 +172,7 @@ const removeLocalDraft = () => {
 };
 
 export default function CreateAssignment() {
+  const { user } = useAuth() as { user: { id: string } };
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isQuiz, setIsQuiz] = useState(false);
@@ -646,14 +648,17 @@ export default function CreateAssignment() {
     });
 
     setSaving(true);
-    try {
-      const res = await fetch(`${BASE_URL}/assignments/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+      try {
+        const res = await fetch(`${BASE_URL}/assignments/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...payload,
+            owner_id: user.id,
+          }),
+        });
 
       console.log("Response status:", res.status);
 
