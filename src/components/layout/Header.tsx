@@ -4,15 +4,8 @@
 // and provides Clerk-powered auth controls.
 // ==========================================================
 
-import { SignIn, useAuth } from "@clerk/clerk-react";
+import { useAuth } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-
-const clerkInlineAppearance = {
-  elements: {
-    rootBox: "w-full",
-    card: "shadow-none border border-gray-200 w-full",
-  },
-};
 
 const Header = () => {
   const navigate = useNavigate();
@@ -44,13 +37,12 @@ const Header = () => {
           <span className="text-sm text-gray-600">Please sign in to continue</span>
         </div>
         <div className="flex justify-end">
-          <div className="w-full max-w-sm">
-            <SignIn
-              afterSignInUrl="/dashboard/teacher"
-              signUpUrl="/admin#sign-up"
-              appearance={clerkInlineAppearance}
-            />
-          </div>
+          <button
+            onClick={() => navigate("/admin")}
+            className="rounded border border-blue-500 px-4 py-2 text-sm font-medium text-blue-600 transition hover:bg-blue-50"
+          >
+            Go to sign-in
+          </button>
         </div>
       </header>
     );
