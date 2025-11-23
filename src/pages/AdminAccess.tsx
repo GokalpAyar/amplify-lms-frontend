@@ -1,12 +1,17 @@
 import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
 import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+
+const cardAppearance = {
+  elements: {
+    rootBox: "w-full",
+    card: "shadow-none border border-gray-200 w-full",
+  },
+};
 
 const AdminAccess = () => {
   const navigate = useNavigate();
   const { isLoaded, isSignedIn } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const view = searchParams.get("view") === "sign-up" ? "sign-up" : "sign-in";
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -15,21 +20,10 @@ const AdminAccess = () => {
     }
   }, [isLoaded, isSignedIn, navigate]);
 
-  const handleViewChange = (nextView: "sign-in" | "sign-up") => {
-    if (nextView === "sign-in") {
-      const params = new URLSearchParams(searchParams);
-      params.delete("view");
-      setSearchParams(params, { replace: true });
-      return;
-    }
-
-    setSearchParams({ view: "sign-up" }, { replace: true });
-  };
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-xl">
-        <div className="text-center">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-5xl">
+        <div className="text-center max-w-2xl mx-auto">
           <p className="text-sm uppercase tracking-wide text-blue-600 font-semibold">
             Amplify LMS
           </p>
@@ -41,55 +35,43 @@ const AdminAccess = () => {
           </p>
         </div>
 
-        <div className="mt-8 flex items-center justify-center gap-3 rounded-full bg-blue-50 p-1">
-          <button
-            type="button"
-            onClick={() => handleViewChange("sign-in")}
-            className={`flex-1 rounded-full py-2 text-sm font-semibold transition ${
-              view === "sign-in"
-                ? "bg-white shadow text-blue-700"
-                : "text-blue-500 hover:text-blue-700"
-            }`}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={() => handleViewChange("sign-up")}
-            className={`flex-1 rounded-full py-2 text-sm font-semibold transition ${
-              view === "sign-up"
-                ? "bg-white shadow text-blue-700"
-                : "text-blue-500 hover:text-blue-700"
-            }`}
-          >
-            Sign up
-          </button>
-        </div>
-
-        <div className="mt-6 flex justify-center">
-          {view === "sign-in" ? (
+        <div className="mt-10 grid gap-8 lg:grid-cols-2">
+          <div className="flex flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-blue-50/40 p-6">
+            <div className="text-center space-y-1">
+              <p className="text-xs uppercase tracking-wide text-blue-600 font-semibold">
+                Returning user
+              </p>
+              <h2 className="text-xl font-semibold text-gray-900">Sign in</h2>
+              <p className="text-sm text-gray-600">
+                Continue right where you left off in the teacher dashboard.
+              </p>
+            </div>
             <SignIn
               afterSignInUrl="/dashboard/teacher"
-              signUpUrl="/admin?view=sign-up"
-              appearance={{
-                elements: {
-                  rootBox: "w-full",
-                  card: "shadow-none border border-gray-200",
-                },
-              }}
+              signUpUrl="/admin#sign-up"
+              appearance={cardAppearance}
             />
-          ) : (
+          </div>
+
+          <div
+            id="sign-up"
+            className="flex flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-emerald-50/60 p-6"
+          >
+            <div className="text-center space-y-1">
+              <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">
+                New to Amplify
+              </p>
+              <h2 className="text-xl font-semibold text-gray-900">Create an account</h2>
+              <p className="text-sm text-gray-600">
+                Spin up a fresh demo profile with Clerk&apos;s hosted onboarding.
+              </p>
+            </div>
             <SignUp
               afterSignUpUrl="/dashboard/teacher"
               signInUrl="/admin"
-              appearance={{
-                elements: {
-                  rootBox: "w-full",
-                  card: "shadow-none border border-gray-200",
-                },
-              }}
+              appearance={cardAppearance}
             />
-          )}
+          </div>
         </div>
       </div>
     </div>
