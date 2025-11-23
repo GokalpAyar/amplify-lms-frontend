@@ -261,8 +261,17 @@ const removeLocalDraft = () => {
 
   const clearDraft = useCallback(async () => {
     try {
+      const token = await getToken();
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      
       await fetch(`${BASE_URL}/assignments/draft`, {
         method: "DELETE",
+        headers,
         credentials: "include",
       });
     } catch (err) {
@@ -273,7 +282,7 @@ const removeLocalDraft = () => {
       setDraftSavedAt(null);
       setDraftErrorMessage(null);
     }
-  }, []);
+  }, [getToken]);
 
   useEffect(() => {
     let isActive = true;
@@ -281,7 +290,14 @@ const removeLocalDraft = () => {
     const loadExistingDraft = async () => {
       setDraftStatus("loading");
       try {
+        const token = await getToken();
+        const headers: HeadersInit = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        
         const response = await fetch(`${BASE_URL}/assignments/draft`, {
+          headers,
           credentials: "include",
         });
         const text = await response.text();
@@ -390,11 +406,17 @@ const removeLocalDraft = () => {
       setDraftStatus("saving");
       setDraftErrorMessage(null);
       try {
+        const token = await getToken();
+        const headers: HeadersInit = {
+          "Content-Type": "application/json",
+        };
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        
         const response = await fetch(`${BASE_URL}/assignments/draft`, {
           method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers,
           credentials: "include",
           body: serializedDraft,
         });
@@ -428,7 +450,7 @@ const removeLocalDraft = () => {
           );
         }
       }
-    }, [isDraftLoading, serializedDraft]);
+    }, [isDraftLoading, serializedDraft, getToken]);
 
     useEffect(() => {
       if (!isBrowser) return;
@@ -650,18 +672,22 @@ const removeLocalDraft = () => {
     setSaving(true);
       try {
         const token = await getToken();
+        console.log("🔑 Token retrieved:", token ? "✓ Present" : "✗ Missing");
+        
         if (!token) {
           throw new Error("Authentication required. Please sign in again.");
         }
+        
         const res = await fetch(`${BASE_URL}/assignments/`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-            body: JSON.stringify({
-              ...payload,
-            }),
+          credentials: "include",
+          body: JSON.stringify({
+            ...payload,
+          }),
         });
 
       console.log("Response status:", res.status);
