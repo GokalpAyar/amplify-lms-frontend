@@ -172,7 +172,7 @@ const removeLocalDraft = () => {
 };
 
   export default function CreateAssignment() {
-    const { user } = useAuth();
+  const { getToken } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isQuiz, setIsQuiz] = useState(false);
@@ -649,14 +649,18 @@ const removeLocalDraft = () => {
 
     setSaving(true);
       try {
+        const token = await getToken();
+        if (!token) {
+          throw new Error("Authentication required. Please sign in again.");
+        }
         const res = await fetch(`${BASE_URL}/assignments/`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
             body: JSON.stringify({
               ...payload,
-              owner_id: user?.id,
             }),
         });
 
