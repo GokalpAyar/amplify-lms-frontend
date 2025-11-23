@@ -633,9 +633,11 @@ const removeLocalDraft = () => {
     });
   };
 
-    // --------------------------------------------------
-    // Submit to backend in demo mode
-    // --------------------------------------------------
+  const assignmentsEndpoint = `${BASE_URL.replace(/\/+$/, "")}/assignments/`;
+
+  // --------------------------------------------------
+  // Submit to backend in demo mode
+  // --------------------------------------------------
   const onSubmit = async () => {
     setError(null);
     setResult(null);
@@ -670,25 +672,25 @@ const removeLocalDraft = () => {
     });
 
     setSaving(true);
-      try {
-        const token = await getToken();
-        console.log("🔑 Token retrieved:", token ? "✓ Present" : "✗ Missing");
-        
-        if (!token) {
-          throw new Error("Authentication required. Please sign in again.");
-        }
-        
-        const res = await fetch(`${BASE_URL}/assignments/`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            ...payload,
-          }),
-        });
+    try {
+      const token = await getToken();
+      console.log("🔑 Token retrieved:", token ? "✓ Present" : "✗ Missing");
+  
+      if (!token) {
+        throw new Error("Authentication required. Please sign in again.");
+      }
+  
+      const res = await fetch(assignmentsEndpoint, {
+        method: "POST",
+        mode: "cors",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ...payload,
+        }),
+      });
 
       console.log("Response status:", res.status);
 
@@ -702,13 +704,13 @@ const removeLocalDraft = () => {
         throw new Error(detail);
       }
 
-        setResult({
-          assignmentId: data.id,
-          shareLink: `/student/${data.id}`,
-          questionsCount: questions.length,
-        });
-        await clearDraft();
-        lastSavedDraftRef.current = serializedDraft;
+      setResult({
+        assignmentId: data.id,
+        shareLink: `/student/${data.id}`,
+        questionsCount: questions.length,
+      });
+      await clearDraft();
+      lastSavedDraftRef.current = serializedDraft;
     } catch (e: any) {
       console.error("Full error during assignment save:", e);
       if (e instanceof Error) {
