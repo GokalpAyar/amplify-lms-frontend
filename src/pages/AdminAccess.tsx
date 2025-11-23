@@ -1,87 +1,96 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { BASE_URL } from "@/config";
+import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const AdminAccess = () => {
   const navigate = useNavigate();
-  const [secretKey, setSecretKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { isLoaded, isSignedIn } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view") === "sign-up" ? "sign-up" : "sign-in";
 
   useEffect(() => {
-    if (localStorage.getItem("isAdmin") === "true") {
-      navigate("/teacher/dashboard", { replace: true });
+    if (!isLoaded) return;
+    if (isSignedIn) {
+      navigate("/dashboard/teacher", { replace: true });
     }
-  }, [navigate]);
+  }, [isLoaded, isSignedIn, navigate]);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-
-    if (!secretKey.trim()) {
-      setError("Please enter the instructor key.");
+  const handleViewChange = (nextView: "sign-in" | "sign-up") => {
+    if (nextView === "sign-in") {
+      const params = new URLSearchParams(searchParams);
+      params.delete("view");
+      setSearchParams(params, { replace: true });
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const response = await fetch(`${BASE_URL}/auth/validate-key`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: secretKey.trim() }),
-      });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok || !data?.valid) {
-        setError("Invalid key");
-        return;
-      }
-
-      localStorage.setItem("isAdmin", "true");
-      navigate("/teacher/dashboard", { replace: true });
-    } catch (err) {
-      console.error("Failed to validate key", err);
-      setError("Unable to validate key. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    setSearchParams({ view: "sign-up" }, { replace: true });
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-4 text-center text-blue-700">
-          Amplify LMS – Demo Access
-        </h1>
-        <p className="text-sm text-gray-600 text-center mb-6">
-          Enter the instructor secret key to explore the demo dashboards.
-        </p>
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-xl">
+        <div className="text-center">
+          <p className="text-sm uppercase tracking-wide text-blue-600 font-semibold">
+            Amplify LMS
+          </p>
+          <h1 className="text-3xl font-bold text-gray-900 mt-2">
+            Access Your Demo Workspace
+          </h1>
+          <p className="text-sm text-gray-600 mt-2">
+            Use the hosted Clerk experience to sign in or create a demo account.
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Instructor Key
-            </label>
-            <input
-              type="password"
-              value={secretKey}
-              onChange={(event) => setSecretKey(event.target.value)}
-              placeholder="Enter secret key"
-              className="w-full border rounded-md p-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-            />
-          </div>
-
-          {error && <p className="text-red-600 text-sm text-center">{error}</p>}
-
+        <div className="mt-8 flex items-center justify-center gap-3 rounded-full bg-blue-50 p-1">
           <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+            type="button"
+            onClick={() => handleViewChange("sign-in")}
+            className={`flex-1 rounded-full py-2 text-sm font-semibold transition ${
+              view === "sign-in"
+                ? "bg-white shadow text-blue-700"
+                : "text-blue-500 hover:text-blue-700"
+            }`}
           >
-            {isSubmitting ? "Validating..." : "Unlock Demo"}
+            Sign in
           </button>
-        </form>
+          <button
+            type="button"
+            onClick={() => handleViewChange("sign-up")}
+            className={`flex-1 rounded-full py-2 text-sm font-semibold transition ${
+              view === "sign-up"
+                ? "bg-white shadow text-blue-700"
+                : "text-blue-500 hover:text-blue-700"
+            }`}
+          >
+            Sign up
+          </button>
+        </div>
+
+        <div className="mt-6 flex justify-center">
+          {view === "sign-in" ? (
+            <SignIn
+              afterSignInUrl="/dashboard/teacher"
+              signUpUrl="/admin?view=sign-up"
+              appearance={{
+                elements: {
+                  rootBox: "w-full",
+                  card: "shadow-none border border-gray-200",
+                },
+              }}
+            />
+          ) : (
+            <SignUp
+              afterSignUpUrl="/dashboard/teacher"
+              signInUrl="/admin"
+              appearance={{
+                elements: {
+                  rootBox: "w-full",
+                  card: "shadow-none border border-gray-200",
+                },
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
