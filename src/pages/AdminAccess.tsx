@@ -1,5 +1,5 @@
 import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const cardAppearance = {
@@ -12,6 +12,7 @@ const cardAppearance = {
 const AdminAccess = () => {
   const navigate = useNavigate();
   const { isLoaded, isSignedIn } = useAuth();
+  const [showSignUp, setShowSignUp] = useState(true);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -21,61 +22,66 @@ const AdminAccess = () => {
   }, [isLoaded, isSignedIn, navigate]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-5xl">
-        <div className="text-center max-w-2xl mx-auto">
-          <p className="text-sm uppercase tracking-wide text-blue-600 font-semibold">
-            Amplify LMS
-          </p>
-          <h1 className="text-3xl font-bold text-gray-900 mt-2">
-            Access Your Demo Workspace
-          </h1>
-          <p className="text-sm text-gray-600 mt-2">
-            Use the hosted Clerk experience to sign in or create a demo account.
-          </p>
-        </div>
-
-        <div className="mt-10 grid gap-8 lg:grid-cols-2">
-          <div className="flex flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-blue-50/40 p-6">
-            <div className="text-center space-y-1">
-              <p className="text-xs uppercase tracking-wide text-blue-600 font-semibold">
-                Returning user
-              </p>
-              <h2 className="text-xl font-semibold text-gray-900">Sign in</h2>
-              <p className="text-sm text-gray-600">
-                Continue right where you left off in the teacher dashboard.
-              </p>
-            </div>
-            <SignIn
-              afterSignInUrl="/dashboard/teacher"
-              signUpUrl="/admin#sign-up"
-              appearance={cardAppearance}
-            />
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-3xl">
+          <div className="text-center max-w-2xl mx-auto">
+            <p className="text-sm uppercase tracking-wide text-blue-600 font-semibold">
+              Amplify LMS
+            </p>
+            <h1 className="text-3xl font-bold text-gray-900 mt-2">Access Your Demo Workspace</h1>
+            <p className="text-sm text-gray-600 mt-2">
+              Use the hosted Clerk experience to sign in or create a demo account.
+            </p>
           </div>
 
-          <div
-            id="sign-up"
-            className="flex flex-col items-center gap-4 rounded-2xl border border-gray-200 bg-emerald-50/60 p-6"
-          >
-            <div className="text-center space-y-1">
-              <p className="text-xs uppercase tracking-wide text-emerald-600 font-semibold">
-                New to Amplify
-              </p>
-              <h2 className="text-xl font-semibold text-gray-900">Create an account</h2>
-              <p className="text-sm text-gray-600">
-                Spin up a fresh demo profile with Clerk&apos;s hosted onboarding.
-              </p>
+          <div className="mt-10 flex justify-center">
+            <div
+              className={`flex w-full max-w-md flex-col items-center gap-4 rounded-2xl border border-gray-200 p-6 ${
+                showSignUp ? "bg-emerald-50/60" : "bg-blue-50/40"
+              }`}
+            >
+              <div className="text-center space-y-1">
+                <p
+                  className={`text-xs uppercase tracking-wide font-semibold ${
+                    showSignUp ? "text-emerald-600" : "text-blue-600"
+                  }`}
+                >
+                  {showSignUp ? "New to Amplify" : "Returning user"}
+                </p>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {showSignUp ? "Create an account" : "Sign in"}
+                </h2>
+                <p className="text-sm text-gray-600">
+                  {showSignUp
+                    ? "Spin up a fresh demo profile with Clerk's hosted onboarding."
+                    : "Continue right where you left off in the teacher dashboard."}
+                </p>
+              </div>
+              {showSignUp ? (
+                <SignUp
+                  afterSignUpUrl="/dashboard/teacher"
+                  signInUrl="/admin"
+                  appearance={cardAppearance}
+                />
+              ) : (
+                <SignIn
+                  afterSignInUrl="/dashboard/teacher"
+                  signUpUrl="/admin"
+                  appearance={cardAppearance}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => setShowSignUp((prev) => !prev)}
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                {showSignUp ? "Have an account? Sign in" : "Need an account? Sign up"}
+              </button>
             </div>
-            <SignUp
-              afterSignUpUrl="/dashboard/teacher"
-              signInUrl="/admin"
-              appearance={cardAppearance}
-            />
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
 };
 
 export default AdminAccess;
