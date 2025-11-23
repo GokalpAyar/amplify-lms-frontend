@@ -171,8 +171,8 @@ const removeLocalDraft = () => {
   }
 };
 
-export default function CreateAssignment() {
-  const { user } = useAuth() as { user: { id: string } };
+  export default function CreateAssignment() {
+    const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isQuiz, setIsQuiz] = useState(false);
@@ -654,10 +654,10 @@ export default function CreateAssignment() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            ...payload,
-            owner_id: user.id,
-          }),
+            body: JSON.stringify({
+              ...payload,
+              owner_id: user?.id,
+            }),
         });
 
       console.log("Response status:", res.status);
