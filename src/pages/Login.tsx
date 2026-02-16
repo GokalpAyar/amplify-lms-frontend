@@ -1,284 +1,115 @@
-// src/router.tsx
-// ==========================================================
-// Amplify-LMS Main Application Router
-// ----------------------------------------------------------
-// Updated: Adds /login route and makes "/" go to /login
-// ==========================================================
+// src/pages/Login.tsx
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/supabaseClient";
 
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+export default function Login() {
+  const navigate = useNavigate();
 
-// ---------- Auth & Common Pages ----------
-import AdminAccess from "./pages/AdminAccess";
-import Login from "./pages/Login";
-import NotFound from "./pages/NotFound";
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-// ---------- Admin ----------
-import AdminDashboard from "./app/admin/AdminDashboard";
-import AdminLayout from "./app/admin/AdminLayout";
-import ManageUsers from "./app/admin/ManageUsers";
-import ManageCourses from "./app/admin/ManageCourses";
-import AuditDashboard from "./app/admin/AuditDashboard";
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-// ---------- Teacher ----------
-import TeacherDashboard from "./app/teacher/TeacherDashboard";
-import TeacherLayout from "./app/teacher/TeacherLayout";
-import CreateAssignment from "./app/teacher/CreateAssignment";
-import GradeSubmissions from "./app/teacher/GradeSubmissions";
-import CourseMaterialUpload from "./app/teacher/CourseMaterialUpload";
-import ViewSubmissions from "./app/teacher/ViewSubmissions";
+  // ✅ If already logged in, go straight to teacher dashboard
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      navigate("/dashboard/teacher", { replace: true });
+    }
+  }, [navigate]);
 
-// ---------- Student ----------
-import StudentDashboard from "./app/student/StudentDashboard";
-import StudentLayout from "./app/student/StudentLayout";
-import SubmitFeedback from "./app/student/SubmitFeedback";
-import TakeTest from "./app/student/TakeTest";
-import MyTranscripts from "./app/student/MyTranscripts";
-import ViewGrades from "./app/student/ViewGrades";
-import MyCourses from "./app/student/courses/MyCourses";
-import CourseDetail from "./app/student/courses/CourseDetail";
-import AssignmentsList from "./app/student/courses/tabs/AssignmentsList";
-import CourseMaterials from "./app/student/courses/tabs/CourseMaterials";
-import CourseGrades from "./app/student/courses/tabs/CourseGrades";
-import CourseFeedback from "./app/student/courses/tabs/CourseFeedback";
-import Syllabus from "./app/student/courses/tabs/Syllabus";
-import AssignmentView from "./app/student/courses/tabs/AssignmentView";
-import QuizView from "./app/student/courses/tabs/QuizView";
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
 
-// ---------- Common Components ----------
-import RootLayout from "./app/layout/RootLayout";
-import ProtectedRoute from "./components/common/ProtectedRoute";
-import RoleGuard from "./components/common/RoleGuard";
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-// ---------- Public Shared Link ----------
-import TakeAssignment from "./app/student/TakeAssignment";
+      if (error) throw new Error(error.message);
+      if (!data.session?.access_token) {
+        throw new Error("No session token returned from Supabase.");
+      }
 
-// ==========================================================
-// AppRouter Component
-// ==========================================================
-const AppRouter = () => (
-  <Router>
-    <Routes>
-      {/* ---------- Public Routes ---------- */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/admin" element={<AdminAccess />} />
-      <Route path="/student/:assignmentId" element={<TakeAssignment />} />
+      // ✅ Store access token for backend Authorization: Bearer <token>
+      localStorage.setItem("token", data.session.access_token);
 
-      {/* Back-compat redirect (optional) */}
-      <Route path="/teacher/dashboard" element={<Navigate to="/dashboard/teacher" replace />} />
+      // ✅ TEMP: keep your RoleGuard working (teacher-only app)
+      localStorage.setItem("userRole", "teacher");
 
-      {/* ---------- Protected Routes ---------- */}
-      <Route
-        element={
-          <ProtectedRoute>
-            <RootLayout />
-          </ProtectedRoute>
-        }
-      >
-        {/* ---------- Admin Routes ---------- */}
-        <Route
-          path="/dashboard/admin"
-          element={
-            <RoleGuard allowedRoles={["admin"]}>
-              <AdminLayout>
-                <AdminDashboard />
-              </AdminLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/admin/users"
-          element={
-            <RoleGuard allowedRoles={["admin"]}>
-              <AdminLayout>
-                <ManageUsers />
-              </AdminLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/admin/courses"
-          element={
-            <RoleGuard allowedRoles={["admin"]}>
-              <AdminLayout>
-                <ManageCourses />
-              </AdminLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/admin/audit"
-          element={
-            <RoleGuard allowedRoles={["admin"]}>
-              <AdminLayout>
-                <AuditDashboard />
-              </AdminLayout>
-            </RoleGuard>
-          }
-        />
+      // Optional user info
+      if (data.user?.id) localStorage.setItem("userId", data.user.id);
+      if (data.user?.email) localStorage.setItem("userEmail", data.user.email);
 
-        {/* ---------- Teacher Routes ---------- */}
-        <Route
-          path="/dashboard/teacher"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <TeacherDashboard />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/teacher/create"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <CreateAssignment />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/teacher/grade"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <GradeSubmissions />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/teacher/materials"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <CourseMaterialUpload />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/teacher/submissions"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <ViewSubmissions />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
+      navigate("/dashboard/teacher", { replace: true });
+    } catch (err: any) {
+      console.error("Login failed:", err);
+      setError(err?.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        {/* ---------- Student Routes ---------- */}
-        <Route
-          path="/dashboard/student"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <StudentDashboard />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/student/feedback"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <SubmitFeedback />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/student/test"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <TakeTest />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/student/transcripts"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <MyTranscripts />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/student/grades"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <ViewGrades />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/student/courses"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <MyCourses />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
+        <h1 className="text-2xl font-bold mb-4 text-center text-blue-700">
+          Amplify LMS – Instructor Login
+        </h1>
 
-        {/* ---------- Student Course Detail + Tabs ---------- */}
-        <Route
-          path="/dashboard/student/courses/:courseId"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <CourseDetail />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        >
-          <Route path="assignments" element={<AssignmentsList />} />
-          <Route path="materials" element={<CourseMaterials />} />
-          <Route path="grades" element={<CourseGrades />} />
-          <Route path="feedback" element={<CourseFeedback />} />
-          <Route path="syllabus" element={<Syllabus />} />
-        </Route>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your email"
+              className="w-full border rounded-md p-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
+              required
+            />
+          </div>
 
-        {/* Assignment & Quiz Views */}
-        <Route
-          path="/dashboard/student/courses/:courseId/assignments/:assignmentId"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <AssignmentView />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/student/courses/:courseId/quizzes/:quizId"
-          element={
-            <RoleGuard allowedRoles={["student"]}>
-              <StudentLayout>
-                <QuizView />
-              </StudentLayout>
-            </RoleGuard>
-          }
-        />
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              className="w-full border rounded-md p-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
+              required
+            />
+          </div>
 
-        {/* Default redirect after login (→ Teacher Dashboard) */}
-        <Route path="/dashboard" element={<Navigate to="/dashboard/teacher" />} />
-      </Route>
+          {error && (
+            <p className="text-red-600 text-sm text-center">{error}</p>
+          )}
 
-      {/* ---------- Fallback Routes ---------- */}
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
-  </Router>
-);
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+          >
+            {loading ? "Logging in..." : "Login"}
+          </button>
+        </form>
 
-export default AppRouter;
+        <div className="mt-4 text-sm text-center text-gray-600">
+          Don’t have an account?{" "}
+          <span className="text-gray-500">Ask the admin to create one.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
