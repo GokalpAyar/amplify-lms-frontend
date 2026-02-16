@@ -4,11 +4,19 @@ export async function fetcher<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  // Get Supabase access token saved during login
+  const token = localStorage.getItem('token')
+
   const res = await fetch(apiUrl(path), {
-    credentials: 'include',
+    // ❌ REMOVE credentials: 'include'
+    // credentials: 'include',
+
+    credentials: 'omit', // safer for CORS
+
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   })
@@ -17,5 +25,7 @@ export async function fetcher<T>(
     const body = await res.text()
     throw new Error(`API ${res.status}: ${body}`)
   }
+
   return res.json() as Promise<T>
 }
+
