@@ -2,15 +2,16 @@
 // ==========================================================
 // Amplify-LMS Main Application Router
 // ----------------------------------------------------------
-// Handles navigation for Admin, Teacher, and Student roles.
-// Includes the public admin-unlock + assignment preview pages
-// and protected dashboards with role-based access control.
+// Updated:
+// - Adds /login route (Supabase instructor login)
+// - Makes "/" redirect to /login (instead of /admin demo key)
 // ==========================================================
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
 // ---------- Auth & Common Pages ----------
 import AdminAccess from "./pages/AdminAccess";
+import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
 // ---------- Admin ----------
@@ -60,9 +61,15 @@ const AppRouter = () => (
   <Router>
     <Routes>
       {/* ---------- Public Routes ---------- */}
+      <Route path="/login" element={<Login />} />
       <Route path="/admin" element={<AdminAccess />} />
       <Route path="/student/:assignmentId" element={<TakeAssignment />} />
-      <Route path="/teacher/dashboard" element={<Navigate to="/dashboard/teacher" replace />} />
+
+      {/* Back-compat redirect (optional) */}
+      <Route
+        path="/teacher/dashboard"
+        element={<Navigate to="/dashboard/teacher" replace />}
+      />
 
       {/* ---------- Protected Routes ---------- */}
       <Route
@@ -268,12 +275,12 @@ const AppRouter = () => (
           }
         />
 
-        {/* Default redirect after login (→ Teacher Dashboard) */}
+        {/* Default redirect after login */}
         <Route path="/dashboard" element={<Navigate to="/dashboard/teacher" />} />
       </Route>
 
       {/* ---------- Fallback Routes ---------- */}
-      <Route path="/" element={<Navigate to="/admin" replace />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   </Router>
