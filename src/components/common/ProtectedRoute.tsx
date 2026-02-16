@@ -1,14 +1,16 @@
-// ProtectedRoute.tsx
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 
 export default function ProtectedRoute({ children }: { children: JSX.Element }) {
-  const isAdmin = localStorage.getItem("isAdmin") === "true";
+  const location = useLocation();
+  const token = localStorage.getItem("token");
 
-  if (!isAdmin) {
-    return <Navigate to="/admin" replace />;
+  if (!token) {
+    // Not logged in → go to /login
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return children;
 }
+
 
 

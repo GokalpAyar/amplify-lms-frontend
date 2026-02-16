@@ -1,4 +1,3 @@
-// RoleGuard.tsx
 import { Navigate } from "react-router-dom";
 
 export default function RoleGuard({
@@ -8,10 +7,15 @@ export default function RoleGuard({
   allowedRoles: string[];
   children: JSX.Element;
 }) {
-  const isAdmin = localStorage.getItem("isAdmin") === "true";
+  const token = localStorage.getItem("token");
+  if (!token) return <Navigate to="/login" replace />;
 
-  if (!isAdmin) {
-    return <Navigate to="/admin" replace />;
+  // TEMP (simple): treat all logged-in users as teacher unless you set userRole
+  const role = (localStorage.getItem("userRole") || "teacher").toLowerCase();
+  const allowed = allowedRoles.map((r) => r.toLowerCase());
+
+  if (!allowed.includes(role)) {
+    return <Navigate to="/dashboard/teacher" replace />;
   }
 
   return children;
