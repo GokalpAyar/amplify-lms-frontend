@@ -609,82 +609,90 @@ export default function CreateAssignment() {
     });
   };
 
-    // --------------------------------------------------
-    // Submit to backend in demo mode
-    // --------------------------------------------------
-  const onSubmit = async () => {
-    setError(null);
-    setResult(null);
+// --------------------------------------------------
+// Submit to backend (requires instructor login)
+// --------------------------------------------------
+const onSubmit = async () => {
+  setError(null);
+  setResult(null);
 
-    const validationError = validateAssignment();
-    if (validationError) {
-      setError(validationError);
+  const validationError = validateAssignment();
+  if (validationError) {
+    setError(validationError);
+    return;
+  }
+
+  const payload: any = {
+    title,
+    description,
+    isQuiz,
+    dueDate,
+    questions,
+  };
+
+  if (assignmentTimeLimit && assignmentTimeLimit > 0) {
+    payload.assignmentTimeLimit = assignmentTimeLimit;
+  }
+
+  console.log("Starting submit...");
+  console.log("Payload:", {
+    title,
+    description,
+    isQuiz,
+    dueDate,
+    questionsCount: questions.length,
+    assignmentTimeLimit,
+  });
+
+  setSaving(true);
+
+  try {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      setError("You are not logged in. Please login again.");
       return;
     }
 
-    const payload: any = {
-      title,
-      description,
-      isQuiz,
-      dueDate,
-      questions,
-    };
-
-    if (assignmentTimeLimit && assignmentTimeLimit > 0) {
-      payload.assignmentTimeLimit = assignmentTimeLimit; // already seconds
-    }
-
-    // 🔍 Debug logging
-    console.log("Starting submit...");
-    console.log("Payload:", {
-      title,
-      description,
-      isQuiz,
-      dueDate,
-      questionsCount: questions.length,
-      assignmentTimeLimit,
+    const res = await fetch(`${BASE_URL}/assignments/`, {
+      method: "POST",
+      credentials: "omit",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
     });
 
-    setSaving(true);
-    try {
-      const res = await fetch(`${BASE_URL}/assignments/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+    console.log("Response status:", res.status);
 
-      console.log("Response status:", res.status);
+    const data = await res.json().catch(() => null);
+    console.log("Response data:", data);
 
-      const data = await res.json().catch(() => null);
-      console.log("Response data:", data);
-
-      if (!res.ok) {
-        const detail =
-          (data && (data.detail || data.message)) ||
-          `Server returned status ${res.status}`;
-        throw new Error(detail);
-      }
-
-        setResult({
-          assignmentId: data.id,
-          shareLink: `/student/${data.id}`,
-          questionsCount: questions.length,
-        });
-        await clearDraft();
-        lastSavedDraftRef.current = serializedDraft;
-    } catch (e: any) {
-      console.error("Full error during assignment save:", e);
-      if (e instanceof Error) {
-        setError(`Failed to save assignment: ${e.message}`);
-      } else {
-        setError("Failed to save assignment. Please check your connection.");
-      }
-    } finally {
-      setSaving(false);
+    if (!res.ok) {
+      const detail =
+        (data && (data.detail || data.message)) ||
+        `Server returned status ${res.status}`;
+      throw new Error(detail);
     }
-  };
+
+    setResult({
+      assignmentId: data.id,
+      shareLink: `/student/${data.id}`,
+      questionsCount: questions.length,
+    });
+
+    await clearDraft();
+    lastSavedDraftRef.current = serializedDraft;
+
+  } catch (e: any) {
+    console.error("Full error during assignment save:", e);
+    setError(`Failed to save assignment: ${e?.message || "Unknown error"}`);
+  } finally {
+    setSaving(false);
+  }
+};
+
 
   // ==========================================================
   // UI
