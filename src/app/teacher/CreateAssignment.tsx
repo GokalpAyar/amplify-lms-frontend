@@ -1,3 +1,4 @@
+import { supabase } from "@/supabaseClient";
 import {
   useMemo,
   useState,
@@ -647,11 +648,27 @@ const onSubmit = async () => {
   setSaving(true);
 
   try {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      throw sessionError;
+    }
+
+    const token = session?.access_token;
+
+    if (!token) {
+      setError("You are not logged in. Please login again.");
+      return;
+    }
+
     const res = await fetch(`${BASE_URL}/assignments/`, {
       method: "POST",
-      credentials: "include", // ✅ IMPORTANT
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
     });
@@ -676,15 +693,13 @@ const onSubmit = async () => {
 
     await clearDraft();
     lastSavedDraftRef.current = serializedDraft;
-
   } catch (e: any) {
     console.error("Full error during assignment save:", e);
     setError(`Failed to save assignment: ${e?.message || "Unknown error"}`);
   } finally {
     setSaving(false);
   }
-
-    
+};
 
   // ==========================================================
   // UI
