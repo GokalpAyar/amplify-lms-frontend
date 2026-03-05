@@ -28,7 +28,14 @@ interface Question {
 function newQuestion(type: QType = "short"): Question {
   const id = nanoid();
   if (type === "multiple") {
-    return { id, type, text: "", options: ["", ""], points: 1, required: false };
+    return {
+      id,
+      type,
+      text: "",
+      options: ["", ""],
+      points: 1,
+      required: false,
+    };
   }
   if (type === "oral") {
     return { id, type, text: "", points: 1, required: false, timeLimit: 60 };
@@ -178,10 +185,14 @@ export default function CreateAssignment() {
   const [dueDate, setDueDate] = useState("");
 
   // assignment-level timer (seconds)
-  const [assignmentTimeLimit, setAssignmentTimeLimit] = useState<number | null>(null);
+  const [assignmentTimeLimit, setAssignmentTimeLimit] = useState<number | null>(
+    null
+  );
   const [assignmentTimeInput, setAssignmentTimeInput] = useState("");
 
-  const [questions, setQuestions] = useState<Question[]>([newQuestion("short")]);
+  const [questions, setQuestions] = useState<Question[]>([
+    newQuestion("short"),
+  ]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -194,7 +205,9 @@ export default function CreateAssignment() {
   const [timeInputs, setTimeInputs] = useState<Record<string, string>>({});
   const [draftStatus, setDraftStatus] = useState<DraftStatus>("idle");
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
-  const [draftErrorMessage, setDraftErrorMessage] = useState<string | null>(null);
+  const [draftErrorMessage, setDraftErrorMessage] = useState<string | null>(
+    null
+  );
   const [isDraftLoading, setIsDraftLoading] = useState(true);
 
   const draftPayload = useMemo<AssignmentDraftPayload>(
@@ -224,6 +237,7 @@ export default function CreateAssignment() {
     () => JSON.stringify(draftPayload),
     [draftPayload]
   );
+
   const lastSavedDraftRef = useRef<string>(serializedDraft);
 
   // keep local timeInputs in sync with question list + timeLimit
@@ -258,11 +272,32 @@ export default function CreateAssignment() {
     setTimeInputs({ ...(draft.timeInputs ?? {}) });
   }, []);
 
+  // ✅ Authenticated fetch using Supabase access_token (no cookies -> avoids CORS credential issues)
+  const authedFetch = useCallback(async (url: string, init: RequestInit = {}) => {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) throw sessionError;
+
+    const token = session?.access_token;
+    if (!token) throw new Error("You are not logged in. Please login again.");
+
+    const headers = new Headers(init.headers || {});
+    headers.set("Authorization", `Bearer ${token}`);
+
+    if (init.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    return fetch(url, { ...init, headers });
+  }, []);
+
   const clearDraft = useCallback(async () => {
     try {
-      await fetch(`${BASE_URL}/assignments/draft`, {
+      await authedFetch(`${BASE_URL}/assignments/draft`, {
         method: "DELETE",
-        credentials: "include",
       });
     } catch (err) {
       console.warn("Failed to clear assignment draft", err);
@@ -272,7 +307,7 @@ export default function CreateAssignment() {
       setDraftSavedAt(null);
       setDraftErrorMessage(null);
     }
-  }, []);
+  }, [authedFetch]);
 
   useEffect(() => {
     let isActive = true;
@@ -280,10 +315,9 @@ export default function CreateAssignment() {
     const loadExistingDraft = async () => {
       setDraftStatus("loading");
       try {
-        const response = await fetch(`${BASE_URL}/assignments/draft`, {
-          credentials: "include",
-        });
+        const response = await authedFetch(`${BASE_URL}/assignments/draft`);
         const text = await response.text();
+
         if (!response.ok) {
           if (response.status === 404) {
             throw new Error("Draft not found");
@@ -292,6 +326,7 @@ export default function CreateAssignment() {
         }
 
         if (!isActive) return;
+
         if (text) {
           const parsed = normalizeDraftPayload(JSON.parse(text));
           applyDraft(parsed);
@@ -307,6 +342,7 @@ export default function CreateAssignment() {
       } catch (err) {
         if (!isActive) return;
         console.warn("Unable to load draft from backend", err);
+
         const localDraft = readLocalDraft();
         if (localDraft) {
           applyDraft(localDraft);
@@ -331,7 +367,7 @@ export default function CreateAssignment() {
     return () => {
       isActive = false;
     };
-  }, [applyDraft]);
+  }, [applyDraft, authedFetch]);
 
   // --------------------------------------------------
   // Basic validation before submit
@@ -366,102 +402,103 @@ export default function CreateAssignment() {
     return null;
   };
 
-    const canSave = useMemo(() => {
-      if (!title.trim() || !description.trim()) return false;
-      if (questions.length === 0) return false;
-      return questions.every((q) => {
-        if (!q.text.trim()) return false;
-        if (q.type === "multiple") {
-          const nonEmpty = (q.options ?? []).filter((o) => o.trim().length > 0);
-          if (nonEmpty.length < 2) return false;
-          if (isQuiz && (q.correctOption === undefined || q.correctOption < 0)) {
-            return false;
-          }
-        }
-        return true;
-      });
-    }, [title, description, questions, isQuiz]);
-
-    const saveDraft = useCallback(async () => {
-      if (isDraftLoading) return;
-      if (serializedDraft === lastSavedDraftRef.current) return;
-
-      setDraftStatus("saving");
-      setDraftErrorMessage(null);
-      try {
-        const response = await fetch(`${BASE_URL}/assignments/draft`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: serializedDraft,
-        });
-
-        if (!response.ok) {
-          const text = await response.text().catch(() => "");
-          throw new Error(text || `Failed to save draft (${response.status})`);
-        }
-
-        lastSavedDraftRef.current = serializedDraft;
-        setDraftStatus("saved");
-        setDraftSavedAt(Date.now());
-        persistLocalDraft(serializedDraft);
-      } catch (err) {
-        console.error("Draft auto-save failed:", err);
-        persistLocalDraft(serializedDraft);
-        setDraftSavedAt(Date.now());
-        const online =
-          typeof navigator !== "undefined" ? navigator.onLine : true;
-        if (online) {
-          setDraftStatus("error");
-          setDraftErrorMessage(
-            err instanceof Error
-              ? err.message
-              : "Unable to save draft. Changes kept locally."
-          );
-        } else {
-          setDraftStatus("offline");
-          setDraftErrorMessage(
-            "Offline — draft saved locally until connection returns."
-          );
+  const canSave = useMemo(() => {
+    if (!title.trim() || !description.trim()) return false;
+    if (questions.length === 0) return false;
+    return questions.every((q) => {
+      if (!q.text.trim()) return false;
+      if (q.type === "multiple") {
+        const nonEmpty = (q.options ?? []).filter((o) => o.trim().length > 0);
+        if (nonEmpty.length < 2) return false;
+        if (isQuiz && (q.correctOption === undefined || q.correctOption < 0)) {
+          return false;
         }
       }
-    }, [isDraftLoading, serializedDraft]);
+      return true;
+    });
+  }, [title, description, questions, isQuiz]);
 
-    useEffect(() => {
-      if (!isBrowser) return;
-      const id = window.setInterval(() => {
+  const saveDraft = useCallback(async () => {
+    if (isDraftLoading) return;
+    if (serializedDraft === lastSavedDraftRef.current) return;
+
+    setDraftStatus("saving");
+    setDraftErrorMessage(null);
+    try {
+      const response = await authedFetch(`${BASE_URL}/assignments/draft`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: serializedDraft,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text || `Failed to save draft (${response.status})`);
+      }
+
+      lastSavedDraftRef.current = serializedDraft;
+      setDraftStatus("saved");
+      setDraftSavedAt(Date.now());
+      persistLocalDraft(serializedDraft);
+    } catch (err) {
+      console.error("Draft auto-save failed:", err);
+      persistLocalDraft(serializedDraft);
+      setDraftSavedAt(Date.now());
+      const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+
+      if (online) {
+        setDraftStatus("error");
+        setDraftErrorMessage(
+          err instanceof Error
+            ? err.message
+            : "Unable to save draft. Changes kept locally."
+        );
+      } else {
+        setDraftStatus("offline");
+        setDraftErrorMessage(
+          "Offline — draft saved locally until connection returns."
+        );
+      }
+    }
+  }, [isDraftLoading, serializedDraft, authedFetch]);
+
+  useEffect(() => {
+    if (!isBrowser) return;
+    const id = window.setInterval(() => {
+      void saveDraft();
+    }, AUTOSAVE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [saveDraft]);
+
+  useEffect(() => {
+    if (!isBrowser) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
         void saveDraft();
-      }, AUTOSAVE_INTERVAL_MS);
-      return () => window.clearInterval(id);
-    }, [saveDraft]);
+      }
+    };
 
-    useEffect(() => {
-      if (!isBrowser) return;
+    const handleBeforeUnload = () => {
+      void saveDraft();
+    };
 
-      const handleVisibilityChange = () => {
-        if (document.visibilityState === "hidden") {
-          void saveDraft();
-        }
-      };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
-      const handleBeforeUnload = () => {
-        void saveDraft();
-      };
-
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-      window.addEventListener("beforeunload", handleBeforeUnload);
-
-      return () => {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        window.removeEventListener("beforeunload", handleBeforeUnload);
-      };
-    }, [saveDraft]);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [saveDraft]);
 
   // ---- helpers ----
   const updateQuestion = (id: string, patch: Partial<Question>) =>
-    setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+    setQuestions((prev) =>
+      prev.map((q) => (q.id === id ? { ...q, ...patch } : q))
+    );
 
   const changeType = (id: string, type: QType) =>
     setQuestions((prev) =>
@@ -536,69 +573,69 @@ export default function CreateAssignment() {
       prev.map((q) => (q.id === qid ? { ...q, correctOption: index } : q))
     );
 
-    const handleReset = useCallback(() => {
-      const initialQuestion = newQuestion("short");
-      const blankDraft: AssignmentDraftPayload = {
-        title: "",
-        description: "",
-        isQuiz: false,
-        dueDate: "",
-        assignmentTimeLimit: null,
-        assignmentTimeInput: "",
-        questions: [initialQuestion],
-        timeInputs: { [initialQuestion.id]: "" },
+  const handleReset = useCallback(() => {
+    const initialQuestion = newQuestion("short");
+    const blankDraft: AssignmentDraftPayload = {
+      title: "",
+      description: "",
+      isQuiz: false,
+      dueDate: "",
+      assignmentTimeLimit: null,
+      assignmentTimeInput: "",
+      questions: [initialQuestion],
+      timeInputs: { [initialQuestion.id]: "" },
+    };
+
+    setQuestions(blankDraft.questions);
+    setTitle("");
+    setDescription("");
+    setDueDate("");
+    setIsQuiz(false);
+    setAssignmentTimeLimit(null);
+    setAssignmentTimeInput("");
+    setError(null);
+    setResult(null);
+    setTimeInputs(blankDraft.timeInputs);
+    setSaving(false);
+    lastSavedDraftRef.current = JSON.stringify(blankDraft);
+    void clearDraft();
+  }, [clearDraft]);
+
+  const draftIndicator = useMemo(() => {
+    if (isDraftLoading || draftStatus === "loading") {
+      return { message: "Loading saved draft…", className: "text-gray-500" };
+    }
+    if (draftStatus === "saving") {
+      return { message: "Saving draft…", className: "text-blue-600" };
+    }
+    if (draftStatus === "saved") {
+      const timeLabel =
+        draftSavedAt &&
+        new Date(draftSavedAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      return {
+        message: timeLabel ? `Draft saved • ${timeLabel}` : "Draft saved",
+        className: "text-green-600",
       };
-
-      setQuestions(blankDraft.questions);
-      setTitle("");
-      setDescription("");
-      setDueDate("");
-      setIsQuiz(false);
-      setAssignmentTimeLimit(null);
-      setAssignmentTimeInput("");
-      setError(null);
-      setResult(null);
-      setTimeInputs(blankDraft.timeInputs);
-      setSaving(false);
-      lastSavedDraftRef.current = JSON.stringify(blankDraft);
-      void clearDraft();
-    }, [clearDraft]);
-
-    const draftIndicator = useMemo(() => {
-      if (isDraftLoading || draftStatus === "loading") {
-        return { message: "Loading saved draft…", className: "text-gray-500" };
-      }
-      if (draftStatus === "saving") {
-        return { message: "Saving draft…", className: "text-blue-600" };
-      }
-      if (draftStatus === "saved") {
-        const timeLabel =
-          draftSavedAt &&
-          new Date(draftSavedAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-        return {
-          message: timeLabel ? `Draft saved • ${timeLabel}` : "Draft saved",
-          className: "text-green-600",
-        };
-      }
-      if (draftStatus === "offline") {
-        return {
-          message: draftErrorMessage ?? "Offline — draft saved locally.",
-          className: "text-amber-600",
-        };
-      }
-      if (draftStatus === "error") {
-        return {
-          message:
-            draftErrorMessage ??
-            "Auto-save failed. Draft kept locally until connection returns.",
-          className: "text-red-600",
-        };
-      }
-      return null;
-    }, [draftStatus, draftSavedAt, draftErrorMessage, isDraftLoading]);
+    }
+    if (draftStatus === "offline") {
+      return {
+        message: draftErrorMessage ?? "Offline — draft saved locally.",
+        className: "text-amber-600",
+      };
+    }
+    if (draftStatus === "error") {
+      return {
+        message:
+          draftErrorMessage ??
+          "Auto-save failed. Draft kept locally until connection returns.",
+        className: "text-red-600",
+      };
+    }
+    return null;
+  }, [draftStatus, draftSavedAt, draftErrorMessage, isDraftLoading]);
 
   // ⚠️ Currently only creates a local preview URL (no backend upload yet).
   const handleMediaUpload = (qid: string, e: ChangeEvent<HTMLInputElement>) => {
@@ -610,96 +647,67 @@ export default function CreateAssignment() {
     });
   };
 
-// --------------------------------------------------
-// Submit to backend (requires instructor login)
-// --------------------------------------------------
-const onSubmit = async () => {
-  setError(null);
-  setResult(null);
+  // --------------------------------------------------
+  // Submit to backend (requires instructor login)
+  // --------------------------------------------------
+  const onSubmit = async () => {
+    setError(null);
+    setResult(null);
 
-  const validationError = validateAssignment();
-  if (validationError) {
-    setError(validationError);
-    return;
-  }
-
-  const payload: any = {
-    title,
-    description,
-    isQuiz,
-    dueDate,
-    questions,
-  };
-
-  if (assignmentTimeLimit && assignmentTimeLimit > 0) {
-    payload.assignmentTimeLimit = assignmentTimeLimit;
-  }
-
-  console.log("Starting submit...");
-  console.log("Payload:", {
-    title,
-    description,
-    isQuiz,
-    dueDate,
-    questionsCount: questions.length,
-    assignmentTimeLimit,
-  });
-
-  setSaving(true);
-
-  try {
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError) {
-      throw sessionError;
-    }
-
-    const token = session?.access_token;
-
-    if (!token) {
-      setError("You are not logged in. Please login again.");
+    const validationError = validateAssignment();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    const res = await fetch(`${BASE_URL}/assignments/`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    });
+    const payload: any = {
+      title,
+      description,
+      isQuiz,
+      dueDate,
+      questions,
+    };
 
-    console.log("Response status:", res.status);
-
-    const data = await res.json().catch(() => null);
-    console.log("Response data:", data);
-
-    if (!res.ok) {
-      const detail =
-        (data && (data.detail || data.message)) ||
-        `Server returned status ${res.status}`;
-      throw new Error(detail);
+    if (assignmentTimeLimit && assignmentTimeLimit > 0) {
+      payload.assignmentTimeLimit = assignmentTimeLimit;
     }
 
-    setResult({
-      assignmentId: data.id,
-      shareLink: `/student/${data.id}`,
-      questionsCount: questions.length,
-    });
+    setSaving(true);
 
-    await clearDraft();
-    lastSavedDraftRef.current = serializedDraft;
-  } catch (e: any) {
-    console.error("Full error during assignment save:", e);
-    setError(`Failed to save assignment: ${e?.message || "Unknown error"}`);
-  } finally {
-    setSaving(false);
-  }
-};
+    try {
+      // ✅ use the same token logic as draft endpoints
+      const res = await authedFetch(`${BASE_URL}/assignments/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const detail =
+          (data && (data.detail || data.message)) ||
+          `Server returned status ${res.status}`;
+        throw new Error(detail);
+      }
+
+      setResult({
+        assignmentId: data.id,
+        shareLink: `/student/${data.id}`,
+        questionsCount: questions.length,
+      });
+
+      await clearDraft();
+      lastSavedDraftRef.current = serializedDraft;
+    } catch (e: any) {
+      console.error("Full error during assignment save:", e);
+      setError(`Failed to save assignment: ${e?.message || "Unknown error"}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // ==========================================================
   // UI
@@ -840,9 +848,7 @@ const onSubmit = async () => {
             {/* Multiple choice options */}
             {q.type === "multiple" && (
               <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">
-                  Options
-                </label>
+                <label className="block text-sm font-medium mb-1">Options</label>
                 {q.options?.map((opt, i) => (
                   <div key={i} className="flex items-center gap-2 mb-2">
                     <input
@@ -982,30 +988,31 @@ const onSubmit = async () => {
         </button>
       </div>
 
-        {/* Save / Reset */}
-        <div className="mt-6 flex gap-3">
-          <button
-            disabled={!canSave || saving}
-            onClick={onSubmit}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save & Publish"}
-          </button>
-          <button
-            onClick={() => void handleReset()}
-            className="px-4 py-2 border rounded-md"
-          >
-            Reset
-          </button>
-        </div>
-        {draftIndicator && (
-          <p
-            className={`mt-2 text-sm ${draftIndicator.className}`}
-            aria-live="polite"
-          >
-            {draftIndicator.message}
-          </p>
-        )}
+      {/* Save / Reset */}
+      <div className="mt-6 flex gap-3">
+        <button
+          disabled={!canSave || saving}
+          onClick={onSubmit}
+          className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save & Publish"}
+        </button>
+        <button
+          onClick={() => void handleReset()}
+          className="px-4 py-2 border rounded-md"
+        >
+          Reset
+        </button>
+      </div>
+
+      {draftIndicator && (
+        <p
+          className={`mt-2 text-sm ${draftIndicator.className}`}
+          aria-live="polite"
+        >
+          {draftIndicator.message}
+        </p>
+      )}
 
       {/* Feedback */}
       {error && <p className="mt-3 text-red-600">{error}</p>}
@@ -1051,4 +1058,3 @@ const onSubmit = async () => {
     </div>
   );
 }
-
