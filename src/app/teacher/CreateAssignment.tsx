@@ -676,7 +676,7 @@ export default function CreateAssignment() {
 
     try {
       // ✅ use the same token logic as draft endpoints
-      const res = await authedFetch(`${BASE_URL}/assignments/`, {
+      const res = await authedFetch(`${BASE_URL}/assignments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
