@@ -1,6 +1,7 @@
 // Enhanced ViewSubmissions.tsx
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { BASE_URL, FRONTEND_ASSIGNMENT_URL } from "@/config";
+import { supabase } from "@/supabaseClient";
 
 type AnswerValue = string | OralAnswerEnvelope | null | undefined;
 
@@ -292,6 +293,27 @@ const ViewSubmissions = () => {
   const [audioStates, setAudioStates] = useState<Record<string, AudioMetaState>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
+  const authedFetch = useCallback(async (url: string, init: RequestInit = {}) => {
+    const {
+      data: { session },
+      error,
+    } = await supabase.auth.getSession();
+
+    if (error) throw error;
+
+    const token = session?.access_token;
+    if (!token) throw new Error("You are not logged in. Please login again.");
+
+    const headers = new Headers(init.headers || {});
+    headers.set("Authorization", `Bearer ${token}`);
+
+    if (init.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    return fetch(url, { ...init, headers });
+  }, []);
+
   const getAssignmentLink = (assignmentId: string) =>
     `${FRONTEND_ASSIGNMENT_URL}/${assignmentId}`;
 
@@ -464,13 +486,11 @@ const ViewSubmissions = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Load assignments
-        const assignRes = await fetch(`${BASE_URL}/assignments/`);
+        const assignRes = await authedFetch(`${BASE_URL}/assignments/`);
         const assignData = await assignRes.json();
         setAssignments(Array.isArray(assignData) ? assignData : []);
 
-        // Load responses
-        const respRes = await fetch(`${BASE_URL}/responses/`);
+        const respRes = await authedFetch(`${BASE_URL}/responses/`);
         const respData = await respRes.json();
         setSubmissions(Array.isArray(respData) ? respData : []);
       } catch (err) {
@@ -481,7 +501,7 @@ const ViewSubmissions = () => {
     };
 
     fetchData();
-  }, []);
+  }, [authedFetch]);
 
   // Filter and sort submissions
   const filteredSubmissions = useMemo(() => {
@@ -557,7 +577,7 @@ const ViewSubmissions = () => {
     setDeletingAssignmentId(assignmentId);
 
     try {
-      const response = await fetch(`${BASE_URL}/assignments/${assignmentId}`, {
+      const response = await authedFetch(`${BASE_URL}/assignments/${assignmentId}`, {
         method: "DELETE",
       });
 
