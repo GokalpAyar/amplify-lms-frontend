@@ -1,10 +1,6 @@
 // src/router.tsx
 // ==========================================================
 // Amplify-LMS Main Application Router
-// ----------------------------------------------------------
-// Updated:
-// - Adds /login route (Supabase instructor login)
-// - Makes "/" redirect to /login (instead of /admin demo key)
 // ==========================================================
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
@@ -25,8 +21,7 @@ import AuditDashboard from "./app/admin/AuditDashboard";
 import TeacherDashboard from "./app/teacher/TeacherDashboard";
 import TeacherLayout from "./app/teacher/TeacherLayout";
 import CreateAssignment from "./app/teacher/CreateAssignment";
-import GradeSubmissions from "./app/teacher/GradeSubmissions";
-import CourseMaterialUpload from "./app/teacher/CourseMaterialUpload";
+import CreateSurvey from "./app/teacher/CreateSurvey";
 import ViewSubmissions from "./app/teacher/ViewSubmissions";
 
 // ---------- Student ----------
@@ -143,21 +138,11 @@ const AppRouter = () => (
           }
         />
         <Route
-          path="/dashboard/teacher/grade"
+          path="/dashboard/teacher/survey-create"
           element={
             <RoleGuard allowedRoles={["teacher"]}>
               <TeacherLayout>
-                <GradeSubmissions />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/teacher/materials"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <CourseMaterialUpload />
+                <CreateSurvey />
               </TeacherLayout>
             </RoleGuard>
           }
