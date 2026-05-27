@@ -275,9 +275,103 @@ interface StudentResponse {
   transcripts: Record<string, string>;
   submittedAt: string;
   audioResponses?: Record<string, AnswerValue>;
+  grade?: number | null;
   student_accuracy_rating?: number | string | null;
   student_rating_comment?: string | null;
 }
+
+interface GradingQuestionResult {
+  question_id?: string;
+  question_type?: string;
+  points_possible?: number | null;
+  auto_score?: number | null;
+  feedback?: string | null;
+  source?: string | null;
+  grading_method?: string | null;
+  expected_answer?: string | null;
+  needs_review?: boolean;
+  [key: string]: unknown;
+}
+
+interface GradingResult {
+  id: string;
+  response_id: string;
+  status: string;
+  total_score?: number | null;
+  max_score?: number | null;
+  percentage?: number | null;
+  question_results?: GradingQuestionResult[] | Record<string, unknown> | null;
+  summary_feedback?: string | null;
+  error_message?: string | null;
+  grader_version?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  reviewed_at?: string | null;
+  approved_at?: string | null;
+  approved_score?: number | null;
+  approved_by?: string | null;
+}
+
+type GradingRequestStatus = "idle" | "loading" | "error";
+
+const parseApiPayload = async (response: globalThis.Response): Promise<unknown> => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
+const extractApiErrorMessage = (payload: unknown, fallback: string) => {
+  if (typeof payload === "string" && payload.trim()) return payload;
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (typeof record.detail === "string") return record.detail;
+    if (typeof record.message === "string") return record.message;
+    if (typeof record.error === "string") return record.error;
+    if (record.detail) return JSON.stringify(record.detail);
+  }
+  return fallback;
+};
+
+const formatGradingNumber = (value?: number | null) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+};
+
+const normalizeQuestionResults = (
+  value?: GradingResult["question_results"]
+): GradingQuestionResult[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.filter(
+      (item): item is GradingQuestionResult => Boolean(item) && typeof item === "object"
+    );
+  }
+  if (typeof value === "object") {
+    return Object.values(value).filter(
+      (item): item is GradingQuestionResult => Boolean(item) && typeof item === "object"
+    );
+  }
+  return [];
+};
+
+const getGradingStatusClass = (status?: string) => {
+  switch (status) {
+    case "completed":
+      return "border-green-200 bg-green-50 text-green-700";
+    case "approved":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "reviewed":
+      return "border-purple-200 bg-purple-50 text-purple-700";
+    case "failed":
+      return "border-red-200 bg-red-50 text-red-700";
+    default:
+      return "border-gray-200 bg-gray-50 text-gray-700";
+  }
+};
 
 const ViewSubmissions = () => {
   const [submissions, setSubmissions] = useState<StudentResponse[]>([]);
@@ -291,6 +385,11 @@ const ViewSubmissions = () => {
   const [deleteFeedback, setDeleteFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copiedAssignmentId, setCopiedAssignmentId] = useState<string | null>(null);
   const [audioStates, setAudioStates] = useState<Record<string, AudioMetaState>>({});
+  const [gradingResults, setGradingResults] = useState<Record<string, GradingResult | null>>({});
+  const [gradingStatus, setGradingStatus] = useState<Record<string, GradingRequestStatus>>({});
+  const [gradingErrors, setGradingErrors] = useState<Record<string, string | null>>({});
+  const [approvalScores, setApprovalScores] = useState<Record<string, string>>({});
+  const [approvingIds, setApprovingIds] = useState<Record<string, boolean>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
   const authedFetch = useCallback(async (url: string, init: RequestInit = {}) => {
@@ -312,6 +411,24 @@ const ViewSubmissions = () => {
     }
 
     return fetch(url, { ...init, headers });
+  }, []);
+
+  const storeGradingResult = useCallback((responseId: string, result: GradingResult | null) => {
+    setGradingResults((prev) => ({
+      ...prev,
+      [responseId]: result,
+    }));
+
+    if (!result) return;
+
+    const defaultScore = result.approved_score ?? result.total_score;
+    setApprovalScores((prev) => ({
+      ...prev,
+      [responseId]:
+        typeof defaultScore === "number" && Number.isFinite(defaultScore)
+          ? String(defaultScore)
+          : prev[responseId] ?? "",
+    }));
   }, []);
 
   const getAssignmentLink = (assignmentId: string) =>
@@ -503,6 +620,134 @@ const ViewSubmissions = () => {
     fetchData();
   }, [authedFetch]);
 
+  useEffect(() => {
+    if (!selected) return;
+    if (Object.prototype.hasOwnProperty.call(gradingResults, selected.id)) return;
+
+    let isCancelled = false;
+
+    const fetchExistingGradingResult = async () => {
+      try {
+        const response = await authedFetch(`${BASE_URL}/responses/${selected.id}/grading-result`);
+
+        if (response.status === 404) {
+          if (!isCancelled) storeGradingResult(selected.id, null);
+          return;
+        }
+
+        const payload = await parseApiPayload(response);
+        if (!response.ok) {
+          throw new Error(
+            extractApiErrorMessage(payload, "Failed to load automatic grading result.")
+          );
+        }
+
+        if (!isCancelled) {
+          storeGradingResult(selected.id, payload as GradingResult);
+        }
+      } catch (error) {
+        if (isCancelled) return;
+        console.error("❌ Failed to load grading result:", error);
+        setGradingErrors((prev) => ({
+          ...prev,
+          [selected.id]:
+            error instanceof Error
+              ? error.message
+              : "Failed to load automatic grading result.",
+        }));
+      }
+    };
+
+    fetchExistingGradingResult();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selected, gradingResults, authedFetch, storeGradingResult]);
+
+  const handleGradeAutomatically = async (submission: StudentResponse) => {
+    setSelected(submission);
+    setGradingStatus((prev) => ({ ...prev, [submission.id]: "loading" }));
+    setGradingErrors((prev) => ({ ...prev, [submission.id]: null }));
+
+    try {
+      const response = await authedFetch(`${BASE_URL}/responses/${submission.id}/grade`, {
+        method: "POST",
+      });
+      const payload = await parseApiPayload(response);
+
+      if (!response.ok) {
+        throw new Error(extractApiErrorMessage(payload, "Automatic grading failed."));
+      }
+
+      storeGradingResult(submission.id, payload as GradingResult);
+      setGradingStatus((prev) => ({ ...prev, [submission.id]: "idle" }));
+    } catch (error) {
+      console.error("❌ Automatic grading failed:", error);
+      setGradingErrors((prev) => ({
+        ...prev,
+        [submission.id]:
+          error instanceof Error ? error.message : "Automatic grading failed.",
+      }));
+      setGradingStatus((prev) => ({ ...prev, [submission.id]: "error" }));
+    }
+  };
+
+  const handleApproveGrade = async (submission: StudentResponse) => {
+    const rawScore = approvalScores[submission.id] ?? "";
+    const approvedScore = Number(rawScore);
+
+    if (!rawScore.trim() || !Number.isFinite(approvedScore) || approvedScore < 0) {
+      setGradingErrors((prev) => ({
+        ...prev,
+        [submission.id]: "Enter a valid approved score before approving.",
+      }));
+      return;
+    }
+
+    setApprovingIds((prev) => ({ ...prev, [submission.id]: true }));
+    setGradingErrors((prev) => ({ ...prev, [submission.id]: null }));
+
+    try {
+      const response = await authedFetch(
+        `${BASE_URL}/responses/${submission.id}/grading-result/review`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            approved_score: approvedScore,
+            approved: true,
+          }),
+        }
+      );
+      const payload = await parseApiPayload(response);
+
+      if (!response.ok) {
+        throw new Error(extractApiErrorMessage(payload, "Failed to approve grade."));
+      }
+
+      const result = payload as GradingResult;
+      const finalScore = result.approved_score ?? approvedScore;
+      storeGradingResult(submission.id, result);
+      setSubmissions((prev) =>
+        prev.map((item) =>
+          item.id === submission.id ? { ...item, grade: finalScore } : item
+        )
+      );
+      setSelected((prev) =>
+        prev?.id === submission.id ? { ...prev, grade: finalScore } : prev
+      );
+    } catch (error) {
+      console.error("❌ Failed to approve grade:", error);
+      setGradingErrors((prev) => ({
+        ...prev,
+        [submission.id]:
+          error instanceof Error ? error.message : "Failed to approve grade.",
+      }));
+    } finally {
+      setApprovingIds((prev) => ({ ...prev, [submission.id]: false }));
+    }
+  };
+
   // Filter and sort submissions
   const filteredSubmissions = useMemo(() => {
     let filtered = submissions;
@@ -618,6 +863,206 @@ const ViewSubmissions = () => {
     } finally {
       setDeletingAssignmentId(null);
     }
+  };
+
+  const renderGradingPanel = (submission: StudentResponse) => {
+    const result = gradingResults[submission.id] ?? null;
+    const questionResults = normalizeQuestionResults(result?.question_results);
+    const isGrading = gradingStatus[submission.id] === "loading";
+    const isApproving = Boolean(approvingIds[submission.id]);
+    const localError = gradingErrors[submission.id];
+    const approvedScore = approvalScores[submission.id] ?? "";
+    const isApproved = result?.status === "approved" || Boolean(result?.approved_at);
+
+    return (
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h4 className="text-lg font-semibold text-gray-900">Automatic Grading</h4>
+            {result?.grader_version && (
+              <p className="mt-1 text-xs text-gray-500">{result.grader_version}</p>
+            )}
+          </div>
+          <button
+            onClick={() => handleGradeAutomatically(submission)}
+            disabled={isGrading}
+            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
+              isGrading
+                ? "cursor-not-allowed bg-gray-200 text-gray-500"
+                : "bg-green-600 text-white hover:bg-green-700"
+            }`}
+          >
+            {isGrading && (
+              <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" />
+            )}
+            {isGrading ? "Grading..." : "Grade Automatically"}
+          </button>
+        </div>
+
+        {localError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {localError}
+          </div>
+        )}
+
+        {result ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+              <div>
+                <p className="text-xs font-semibold uppercase text-gray-500">Status</p>
+                <span
+                  className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${getGradingStatusClass(
+                    result.status
+                  )}`}
+                >
+                  {result.status || "unknown"}
+                </span>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-gray-500">Score</p>
+                <p className="mt-1 text-sm font-semibold text-gray-900">
+                  {formatGradingNumber(result.total_score)} / {formatGradingNumber(result.max_score)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-gray-500">Percentage</p>
+                <p className="mt-1 text-sm font-semibold text-gray-900">
+                  {typeof result.percentage === "number"
+                    ? `${formatGradingNumber(result.percentage)}%`
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-gray-500">Approved</p>
+                <p className={`mt-1 text-sm font-semibold ${isApproved ? "text-green-700" : "text-gray-500"}`}>
+                  {isApproved ? "Yes" : "Not yet"}
+                </p>
+              </div>
+            </div>
+
+            {result.summary_feedback && (
+              <div className="rounded-md border border-gray-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase text-gray-500">Summary Feedback</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">
+                  {result.summary_feedback}
+                </p>
+              </div>
+            )}
+
+            {result.error_message && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3">
+                <p className="text-xs font-semibold uppercase text-red-700">Error</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-red-700">
+                  {result.error_message}
+                </p>
+              </div>
+            )}
+
+            {questionResults.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-gray-900">Question Results</p>
+                {questionResults.map((questionResult, index) => (
+                  <div
+                    key={`${questionResult.question_id || "question"}-${index}`}
+                    className="rounded-md border border-gray-200 bg-white p-3"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">
+                          Question {index + 1}
+                          {questionResult.question_id ? ` · ${questionResult.question_id}` : ""}
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                          {questionResult.question_type && (
+                            <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                              {questionResult.question_type}
+                            </span>
+                          )}
+                          {questionResult.grading_method && (
+                            <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                              {questionResult.grading_method}
+                            </span>
+                          )}
+                          {questionResult.source && (
+                            <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                              {questionResult.source}
+                            </span>
+                          )}
+                          {questionResult.needs_review && (
+                            <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
+                              Needs review
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {formatGradingNumber(questionResult.auto_score)} /{" "}
+                        {formatGradingNumber(questionResult.points_possible)}
+                      </p>
+                    </div>
+                    {questionResult.feedback && (
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">
+                        {questionResult.feedback}
+                      </p>
+                    )}
+                    {questionResult.expected_answer && (
+                      <p className="mt-2 text-xs text-gray-500">
+                        Expected answer: {questionResult.expected_answer}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="border-t border-gray-200 pt-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="sm:w-48">
+                  <label className="block text-sm font-medium text-gray-700" htmlFor={`approved-score-${submission.id}`}>
+                    Approved Score
+                  </label>
+                  <input
+                    id={`approved-score-${submission.id}`}
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={approvedScore}
+                    onChange={(event) =>
+                      setApprovalScores((prev) => ({
+                        ...prev,
+                        [submission.id]: event.target.value,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <button
+                  onClick={() => handleApproveGrade(submission)}
+                  disabled={isApproving}
+                  className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
+                    isApproving
+                      ? "cursor-not-allowed bg-gray-200 text-gray-500"
+                      : "bg-blue-600 text-white hover:bg-blue-700"
+                  }`}
+                >
+                  {isApproving ? "Approving..." : "Approve Grade"}
+                </button>
+              </div>
+              {isApproved && (
+                <p className="mt-3 text-sm font-medium text-green-700">
+                  Grade approved
+                  {result.approved_at ? ` on ${new Date(result.approved_at).toLocaleString()}` : ""}.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">
+            {isGrading ? "Grading this submission..." : "No automatic grading result yet."}
+          </p>
+        )}
+      </div>
+    );
   };
 
   if (loading) {
@@ -869,6 +1314,11 @@ const ViewSubmissions = () => {
                   const hasStudentRating = typeof studentRatingValue === "number" && studentRatingValue > 0;
                   const studentRatingDisplay = hasStudentRating ? renderStudentStars(studentRatingValue) : null;
                   const studentRatingComment = sub.student_rating_comment?.trim();
+                  const rowGradingResult = gradingResults[sub.id] ?? null;
+                  const rowIsGrading = gradingStatus[sub.id] === "loading";
+                  const rowGradingError = gradingErrors[sub.id];
+                  const rowApproved =
+                    rowGradingResult?.status === "approved" || Boolean(rowGradingResult?.approved_at);
                   return (
                     <tr key={sub.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -911,12 +1361,48 @@ const ViewSubmissions = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => setSelected(sub)}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
-                        >
-                          View Details
-                        </button>
+                        <div className="flex flex-col items-start gap-2">
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => handleGradeAutomatically(sub)}
+                              disabled={rowIsGrading}
+                              className={`px-4 py-2 rounded-md transition-colors text-sm font-medium ${
+                                rowIsGrading
+                                  ? "cursor-not-allowed bg-gray-200 text-gray-500"
+                                  : "bg-green-600 text-white hover:bg-green-700"
+                              }`}
+                            >
+                              {rowIsGrading ? "Grading..." : "Grade Automatically"}
+                            </button>
+                            <button
+                              onClick={() => setSelected(sub)}
+                              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                            >
+                              View Details
+                            </button>
+                          </div>
+                          {rowGradingResult && (
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span
+                                className={`rounded-full border px-2 py-1 font-semibold capitalize ${getGradingStatusClass(
+                                  rowGradingResult.status
+                                )}`}
+                              >
+                                {rowGradingResult.status}
+                              </span>
+                              <span className="text-gray-600">
+                                {formatGradingNumber(rowGradingResult.total_score)} /{" "}
+                                {formatGradingNumber(rowGradingResult.max_score)}
+                              </span>
+                              {rowApproved && (
+                                <span className="font-semibold text-green-700">Approved</span>
+                              )}
+                            </div>
+                          )}
+                          {rowGradingError && (
+                            <p className="max-w-xs text-xs text-red-600">{rowGradingError}</p>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -963,6 +1449,8 @@ const ViewSubmissions = () => {
                         </p>
                       )}
                     </div>
+
+                    {renderGradingPanel(selected)}
 
                     {activeAssignment.questions.map((q, i) => {
                         const answerValue = selected.answers?.[q.id];

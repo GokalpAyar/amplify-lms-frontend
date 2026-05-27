@@ -19,7 +19,6 @@ const navItems: Record<string, { label: string; path: string }[]> = {
   teacher: [
     { label: "Dashboard", path: "/dashboard/teacher" },
     { label: "Create Assignment", path: "/dashboard/teacher/create" },
-    { label: "Create Survey", path: "/dashboard/teacher/survey-create" },
     { label: "View Submissions", path: "/dashboard/teacher/submissions" },
   ],
   student: [

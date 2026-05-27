@@ -21,7 +21,6 @@ import AuditDashboard from "./app/admin/AuditDashboard";
 import TeacherDashboard from "./app/teacher/TeacherDashboard";
 import TeacherLayout from "./app/teacher/TeacherLayout";
 import CreateAssignment from "./app/teacher/CreateAssignment";
-import CreateSurvey from "./app/teacher/CreateSurvey";
 import ViewSubmissions from "./app/teacher/ViewSubmissions";
 
 // ---------- Student ----------
@@ -133,16 +132,6 @@ const AppRouter = () => (
             <RoleGuard allowedRoles={["teacher"]}>
               <TeacherLayout>
                 <CreateAssignment />
-              </TeacherLayout>
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/dashboard/teacher/survey-create"
-          element={
-            <RoleGuard allowedRoles={["teacher"]}>
-              <TeacherLayout>
-                <CreateSurvey />
               </TeacherLayout>
             </RoleGuard>
           }
