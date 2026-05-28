@@ -286,6 +286,9 @@ interface GradingQuestionResult {
   points_possible?: number | null;
   auto_score?: number | null;
   feedback?: string | null;
+  strengths?: string | null;
+  missing_points?: string | null;
+  confidence?: number | null;
   source?: string | null;
   grading_method?: string | null;
   expected_answer?: string | null;
@@ -993,6 +996,11 @@ const ViewSubmissions = () => {
                               Needs review
                             </span>
                           )}
+                          {typeof questionResult.confidence === "number" && (
+                            <span className="rounded-full bg-gray-100 px-2 py-1">
+                              Confidence {Math.round(questionResult.confidence * 100)}%
+                            </span>
+                          )}
                         </div>
                       </div>
                       <p className="text-sm font-semibold text-gray-900">
@@ -1004,6 +1012,30 @@ const ViewSubmissions = () => {
                       <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">
                         {questionResult.feedback}
                       </p>
+                    )}
+                    {(questionResult.strengths || questionResult.missing_points) && (
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {questionResult.strengths && (
+                          <div className="rounded-md bg-green-50 p-2 text-sm text-green-800">
+                            <p className="text-xs font-semibold uppercase text-green-700">
+                              Strengths
+                            </p>
+                            <p className="mt-1 whitespace-pre-wrap">
+                              {questionResult.strengths}
+                            </p>
+                          </div>
+                        )}
+                        {questionResult.missing_points && (
+                          <div className="rounded-md bg-amber-50 p-2 text-sm text-amber-800">
+                            <p className="text-xs font-semibold uppercase text-amber-700">
+                              Missing Points
+                            </p>
+                            <p className="mt-1 whitespace-pre-wrap">
+                              {questionResult.missing_points}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     )}
                     {questionResult.expected_answer && (
                       <p className="mt-2 text-xs text-gray-500">
