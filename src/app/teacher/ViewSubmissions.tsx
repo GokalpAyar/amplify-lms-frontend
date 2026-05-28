@@ -321,8 +321,11 @@ interface GradingResult {
   summary_feedback?: string | null;
   error_message?: string | null;
   grader_version?: string | null;
+  instructor_feedback?: string | null;
+  regrade_reason?: string | null;
   created_at?: string;
   updated_at?: string;
+  regraded_at?: string | null;
   reviewed_at?: string | null;
   approved_at?: string | null;
   approved_score?: number | null;
@@ -330,14 +333,14 @@ interface GradingResult {
 }
 
 type GradingRequestStatus = "idle" | "loading" | "error";
-type GradingFilter = "all" | "auto_graded" | "needs_review" | "approved" | "failed";
+type GradingFilter = "all" | "pending_approval" | "needs_review" | "approved" | "failed";
 
 const gradingFilterTabs: { key: GradingFilter; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "auto_graded", label: "Auto-Graded" },
+  { key: "pending_approval", label: "Pending Approval" },
   { key: "needs_review", label: "Needs Review" },
   { key: "approved", label: "Approved" },
-  { key: "failed", label: "Failed Grading" },
+  { key: "failed", label: "Failed" },
 ];
 
 const parseApiPayload = async (response: globalThis.Response): Promise<unknown> => {
@@ -402,21 +405,34 @@ const getGradingStatusClass = (status?: string) => {
 const isApprovedResult = (result?: GradingResult | null) =>
   Boolean(result?.approved_at) || result?.status === "approved";
 
-const isAutoGradedResult = (result?: GradingResult | null) =>
-  Boolean(result && ["completed", "reviewed", "approved"].includes(result.status));
-
 const hasNeedsReview = (result?: GradingResult | null) => {
-  if (!result || isApprovedResult(result) || result.status === "failed") return false;
-  return normalizeQuestionResults(result.question_results).some((item) => Boolean(item.needs_review));
+  if (!result || isApprovedResult(result)) return false;
+  if (result.status === "failed") return true;
+  if (typeof result.total_score !== "number" || !Number.isFinite(result.total_score)) return true;
+  if (typeof result.max_score !== "number" || !Number.isFinite(result.max_score)) return true;
+
+  return normalizeQuestionResults(result.question_results).some((item) => {
+    const missingScore = typeof item.auto_score !== "number" || !Number.isFinite(item.auto_score);
+    const lowConfidence = typeof item.confidence === "number" && item.confidence < 0.6;
+    return Boolean(item.needs_review) || lowConfidence || missingScore;
+  });
 };
+
+const isPendingApprovalResult = (result?: GradingResult | null) =>
+  Boolean(
+    result &&
+      !isApprovedResult(result) &&
+      !hasNeedsReview(result) &&
+      ["completed", "reviewed"].includes(result.status)
+  );
 
 const matchesGradingFilter = (
   result: GradingResult | null | undefined,
   filter: GradingFilter
 ) => {
   switch (filter) {
-    case "auto_graded":
-      return isAutoGradedResult(result);
+    case "pending_approval":
+      return isPendingApprovalResult(result);
     case "needs_review":
       return hasNeedsReview(result);
     case "approved":
@@ -438,7 +454,20 @@ const getSubmissionGradingLabel = (
   if (isApprovedResult(result)) return "Approved";
   if (result.status === "failed") return "Failed";
   if (hasNeedsReview(result)) return "Needs review";
+  if (isPendingApprovalResult(result)) return "Pending approval";
   return result.status || "Auto-graded";
+};
+
+const getSubmissionGradingClass = (
+  result: GradingResult | null | undefined,
+  isGrading: boolean
+) => {
+  if (isGrading) return "border-blue-200 bg-blue-50 text-blue-700";
+  if (isApprovedResult(result)) return "border-blue-200 bg-blue-50 text-blue-700";
+  if (result?.status === "failed") return "border-red-200 bg-red-50 text-red-700";
+  if (hasNeedsReview(result)) return "border-amber-200 bg-amber-50 text-amber-800";
+  if (isPendingApprovalResult(result)) return "border-green-200 bg-green-50 text-green-700";
+  return getGradingStatusClass(result?.status);
 };
 
 const ViewSubmissions = () => {
@@ -459,7 +488,10 @@ const ViewSubmissions = () => {
   const [gradingStatus, setGradingStatus] = useState<Record<string, GradingRequestStatus>>({});
   const [gradingErrors, setGradingErrors] = useState<Record<string, string | null>>({});
   const [approvalScores, setApprovalScores] = useState<Record<string, string>>({});
+  const [instructorFeedback, setInstructorFeedback] = useState<Record<string, string>>({});
+  const [regradeReasons, setRegradeReasons] = useState<Record<string, string>>({});
   const [approvingIds, setApprovingIds] = useState<Record<string, boolean>>({});
+  const [savingFeedbackIds, setSavingFeedbackIds] = useState<Record<string, boolean>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
 
   const authedFetch = useCallback(async (url: string, init: RequestInit = {}) => {
@@ -498,6 +530,10 @@ const ViewSubmissions = () => {
         typeof defaultScore === "number" && Number.isFinite(defaultScore)
           ? String(defaultScore)
           : "",
+    }));
+    setInstructorFeedback((prev) => ({
+      ...prev,
+      [responseId]: result.instructor_feedback ?? prev[responseId] ?? "",
     }));
   }, []);
 
@@ -757,16 +793,32 @@ const ViewSubmissions = () => {
     };
   }, [selected, gradingResults, fetchGradingResultForResponse]);
 
-  const handleGradeAutomatically = async (submission: StudentResponse) => {
+  const handleGradeAutomatically = async (submission: StudentResponse, reason?: string) => {
     if (gradingStatus[submission.id] === "loading") return;
+
+    const currentResult = gradingResults[submission.id] ?? null;
+    if (isApprovedResult(currentResult)) {
+      const confirmed = window.confirm(
+        "This submission already has an approved grade. Regrading will move the AI result back into review, but the final grade will not change until you approve again."
+      );
+      if (!confirmed) return;
+    }
 
     setSelected(submission);
     setGradingStatus((prev) => ({ ...prev, [submission.id]: "loading" }));
     setGradingErrors((prev) => ({ ...prev, [submission.id]: null }));
 
     try {
+      const trimmedReason = reason?.trim();
       const response = await authedFetch(`${BASE_URL}/responses/${submission.id}/grade`, {
         method: "POST",
+        ...(currentResult
+          ? {
+              body: JSON.stringify({
+                regrade_reason: trimmedReason || null,
+              }),
+            }
+          : {}),
       });
       const payload = await parseApiPayload(response);
 
@@ -775,6 +827,7 @@ const ViewSubmissions = () => {
       }
 
       storeGradingResult(submission.id, payload as GradingResult);
+      setRegradeReasons((prev) => ({ ...prev, [submission.id]: "" }));
       setGradingStatus((prev) => ({ ...prev, [submission.id]: "idle" }));
     } catch (error) {
       console.error("❌ Automatic grading failed:", error);
@@ -810,6 +863,7 @@ const ViewSubmissions = () => {
           body: JSON.stringify({
             approved_score: approvedScore,
             approved: true,
+            instructor_feedback: instructorFeedback[submission.id] ?? "",
           }),
         }
       );
@@ -842,12 +896,77 @@ const ViewSubmissions = () => {
     }
   };
 
+  const handleSaveInstructorFeedback = async (submission: StudentResponse) => {
+    const rawScore = approvalScores[submission.id] ?? "";
+    const hasReviewedScore = rawScore.trim().length > 0;
+    const reviewedScore = hasReviewedScore ? Number(rawScore) : null;
+    const keepApproved = isApprovedResult(gradingResults[submission.id]);
+
+    if (hasReviewedScore && (reviewedScore === null || !Number.isFinite(reviewedScore) || reviewedScore < 0)) {
+      setGradingErrors((prev) => ({
+        ...prev,
+        [submission.id]: "Enter a valid score or leave the score blank before saving feedback.",
+      }));
+      return;
+    }
+
+    if (keepApproved && reviewedScore === null) {
+      setGradingErrors((prev) => ({
+        ...prev,
+        [submission.id]: "Approved submissions need a score before saving changes.",
+      }));
+      return;
+    }
+
+    setSavingFeedbackIds((prev) => ({ ...prev, [submission.id]: true }));
+    setGradingErrors((prev) => ({ ...prev, [submission.id]: null }));
+
+    try {
+      const reviewPayload: {
+        approved: boolean;
+        instructor_feedback: string;
+        approved_score?: number;
+      } = {
+        approved: keepApproved,
+        instructor_feedback: instructorFeedback[submission.id] ?? "",
+      };
+
+      if (reviewedScore !== null) {
+        reviewPayload.approved_score = reviewedScore;
+      }
+
+      const response = await authedFetch(
+        `${BASE_URL}/responses/${submission.id}/grading-result/review`,
+        {
+          method: "POST",
+          body: JSON.stringify(reviewPayload),
+        }
+      );
+      const payload = await parseApiPayload(response);
+
+      if (!response.ok) {
+        throw new Error(extractApiErrorMessage(payload, "Failed to save feedback."));
+      }
+
+      storeGradingResult(submission.id, payload as GradingResult);
+    } catch (error) {
+      console.error("❌ Failed to save feedback:", error);
+      setGradingErrors((prev) => ({
+        ...prev,
+        [submission.id]:
+          error instanceof Error ? error.message : "Failed to save feedback.",
+      }));
+    } finally {
+      setSavingFeedbackIds((prev) => ({ ...prev, [submission.id]: false }));
+    }
+  };
+
   const gradingWorkflowStats = useMemo(() => {
     return submissions.reduce(
       (stats, submission) => {
         const result = gradingResults[submission.id];
         stats.total += 1;
-        if (isAutoGradedResult(result)) stats.autoGraded += 1;
+        if (isPendingApprovalResult(result)) stats.pendingApproval += 1;
         if (hasNeedsReview(result)) stats.needsReview += 1;
         if (isApprovedResult(result)) stats.approved += 1;
         if (result?.status === "failed") stats.failed += 1;
@@ -855,7 +974,7 @@ const ViewSubmissions = () => {
       },
       {
         total: 0,
-        autoGraded: 0,
+        pendingApproval: 0,
         needsReview: 0,
         approved: 0,
         failed: 0,
@@ -865,7 +984,7 @@ const ViewSubmissions = () => {
 
   const gradingFilterCounts: Record<GradingFilter, number> = {
     all: gradingWorkflowStats.total,
-    auto_graded: gradingWorkflowStats.autoGraded,
+    pending_approval: gradingWorkflowStats.pendingApproval,
     needs_review: gradingWorkflowStats.needsReview,
     approved: gradingWorkflowStats.approved,
     failed: gradingWorkflowStats.failed,
@@ -999,11 +1118,14 @@ const ViewSubmissions = () => {
     const questionResults = normalizeQuestionResults(result?.question_results);
     const isGrading = gradingStatus[submission.id] === "loading";
     const isApproving = Boolean(approvingIds[submission.id]);
+    const isSavingFeedback = Boolean(savingFeedbackIds[submission.id]);
     const localError = gradingErrors[submission.id];
     const approvedScore = approvalScores[submission.id] ?? "";
     const isApproved = isApprovedResult(result);
     const gradingAssignment = assignments.find((assignment) => assignment.id === submission.assignment_id);
     const gradeActionLabel = result ? "Regrade" : "Grade Automatically";
+    const feedbackValue = instructorFeedback[submission.id] ?? result?.instructor_feedback ?? "";
+    const regradeReason = regradeReasons[submission.id] ?? "";
 
     return (
       <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -1020,7 +1142,7 @@ const ViewSubmissions = () => {
             </div>
           </div>
           <button
-            onClick={() => handleGradeAutomatically(submission)}
+            onClick={() => handleGradeAutomatically(submission, regradeReason)}
             disabled={isGrading}
             className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold transition-colors ${
               isGrading
@@ -1032,6 +1154,41 @@ const ViewSubmissions = () => {
             {isGrading ? (result ? "Regrading..." : "Grading...") : gradeActionLabel}
           </button>
         </div>
+
+        {isApproved && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            Regrading an approved submission will require instructor approval again before the final grade changes.
+          </div>
+        )}
+
+        {result && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <label className="block text-sm font-medium text-slate-700" htmlFor={`regrade-reason-${submission.id}`}>
+              Regrade Reason
+            </label>
+            <textarea
+              id={`regrade-reason-${submission.id}`}
+              value={regradeReason}
+              onChange={(event) =>
+                setRegradeReasons((prev) => ({
+                  ...prev,
+                  [submission.id]: event.target.value,
+                }))
+              }
+              placeholder="Optional note explaining why this submission is being regraded."
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              rows={2}
+            />
+            {(result.regrade_reason || result.regraded_at) && (
+              <p className="mt-2 text-xs text-slate-500">
+                Last regrade
+                {result.regraded_at ? ` on ${new Date(result.regraded_at).toLocaleString()}` : ""}
+                {result.regrade_reason ? `: ${result.regrade_reason}` : ""}
+              </p>
+            )}
+          </div>
+        )}
 
         {localError && (
           <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -1046,11 +1203,12 @@ const ViewSubmissions = () => {
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="text-xs font-semibold uppercase text-slate-500">Status</p>
                 <span
-                  className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${getGradingStatusClass(
-                    result.status
+                  className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${getSubmissionGradingClass(
+                    result,
+                    isGrading
                   )}`}
                 >
-                  {result.status || "unknown"}
+                  {getSubmissionGradingLabel(result, isGrading)}
                 </span>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -1114,6 +1272,9 @@ const ViewSubmissions = () => {
                     typeof questionResult.confidence === "number"
                       ? Math.round(questionResult.confidence * 100)
                       : null;
+                  const lowConfidence =
+                    typeof questionResult.confidence === "number" &&
+                    questionResult.confidence < 0.6;
 
                   return (
                     <div
@@ -1142,7 +1303,7 @@ const ViewSubmissions = () => {
                                 {questionResult.source}
                               </span>
                             )}
-                            {questionResult.needs_review && (
+                            {(questionResult.needs_review || lowConfidence) && (
                               <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-800">
                                 Needs review
                               </span>
@@ -1218,6 +1379,27 @@ const ViewSubmissions = () => {
             )}
 
             <div className="border-t border-slate-200 pt-4">
+              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="block text-sm font-medium text-slate-700" htmlFor={`instructor-feedback-${submission.id}`}>
+                  Instructor Feedback
+                </label>
+                <textarea
+                  id={`instructor-feedback-${submission.id}`}
+                  value={feedbackValue}
+                  onChange={(event) =>
+                    setInstructorFeedback((prev) => ({
+                      ...prev,
+                      [submission.id]: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional comment saved with the instructor-reviewed grade. AI feedback stays unchanged above."
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  rows={3}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  This is separate from the AI feedback. Save it as a review note or include it when approving.
+                </p>
+              </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="sm:w-48">
                   <label className="block text-sm font-medium text-slate-700" htmlFor={`approved-score-${submission.id}`}>
@@ -1238,18 +1420,31 @@ const ViewSubmissions = () => {
                     className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
-                <button
-                  onClick={() => handleApproveGrade(submission)}
-                  disabled={isApproving}
-                  className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
-                    isApproving
-                      ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                      : "bg-green-600 text-white hover:bg-green-700"
-                  }`}
-                >
-                  <Award className="h-4 w-4" aria-hidden="true" />
-                  {isApproving ? "Approving..." : "Approve Grade"}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => handleSaveInstructorFeedback(submission)}
+                    disabled={isSavingFeedback}
+                    className={`inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-semibold transition-colors ${
+                      isSavingFeedback
+                        ? "cursor-not-allowed border-slate-200 bg-slate-200 text-slate-500"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {isSavingFeedback ? "Saving..." : "Save Feedback"}
+                  </button>
+                  <button
+                    onClick={() => handleApproveGrade(submission)}
+                    disabled={isApproving}
+                    className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
+                      isApproving
+                        ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                        : "bg-green-600 text-white hover:bg-green-700"
+                    }`}
+                  >
+                    <Award className="h-4 w-4" aria-hidden="true" />
+                    {isApproving ? "Approving..." : "Approve Grade"}
+                  </button>
+                </div>
               </div>
               {isApproved && (
                 <p className="mt-3 text-sm font-medium text-green-700">
@@ -1312,8 +1507,8 @@ const ViewSubmissions = () => {
           <p className="mt-2 text-3xl font-bold text-slate-950">{gradingWorkflowStats.total}</p>
         </div>
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase text-green-700">Auto-Graded</p>
-          <p className="mt-2 text-3xl font-bold text-green-950">{gradingWorkflowStats.autoGraded}</p>
+          <p className="text-xs font-semibold uppercase text-green-700">Pending Approval</p>
+          <p className="mt-2 text-3xl font-bold text-green-950">{gradingWorkflowStats.pendingApproval}</p>
         </div>
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase text-amber-700">Needs Review</p>
@@ -1324,7 +1519,7 @@ const ViewSubmissions = () => {
           <p className="mt-2 text-3xl font-bold text-blue-950">{gradingWorkflowStats.approved}</p>
         </div>
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase text-red-700">Failed Grading</p>
+          <p className="text-xs font-semibold uppercase text-red-700">Failed</p>
           <p className="mt-2 text-3xl font-bold text-red-950">{gradingWorkflowStats.failed}</p>
         </div>
       </div>
@@ -1653,9 +1848,7 @@ const ViewSubmissions = () => {
                         <div className="flex flex-col items-start gap-2">
                           <span
                             className={`rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${
-                              rowIsGrading
-                                ? "border-blue-200 bg-blue-50 text-blue-700"
-                                : getGradingStatusClass(rowGradingResult?.status)
+                              getSubmissionGradingClass(rowGradingResult, rowIsGrading)
                             }`}
                           >
                             {rowStatusLabel}
