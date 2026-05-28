@@ -8,6 +8,19 @@ import {
   type ChangeEvent,
 } from "react";
 import { nanoid } from "nanoid";
+import {
+  Bot,
+  CheckCircle2,
+  Clock3,
+  FilePlus2,
+  ImagePlus,
+  ListChecks,
+  Mic2,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { BASE_URL } from "@/config";
 
 type QType = "short" | "multiple" | "oral";
@@ -639,7 +652,7 @@ export default function CreateAssignment() {
     return null;
   }, [draftStatus, draftSavedAt, draftErrorMessage, isDraftLoading]);
 
-  // ⚠️ Currently only creates a local preview URL (no backend upload yet).
+  // Currently only creates a local preview URL (no backend upload yet).
   const handleMediaUpload = (qid: string, e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -715,96 +728,182 @@ export default function CreateAssignment() {
   // UI
   // ==========================================================
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <h1 className="text-2xl font-semibold mb-4">Create Assignment</h1>
-
-      {/* Assignment meta */}
-      <div className="bg-white rounded-xl shadow p-4 mb-6">
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Assignment Title"
-          className="w-full border rounded-md p-2 mb-2"
-        />
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Instructions for students"
-          className="w-full border rounded-md p-2 mb-2"
-          rows={2}
-        />
-        <div className="flex flex-wrap gap-4 items-center">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={isQuiz}
-              onChange={(e) => setIsQuiz(e.target.checked)}
-            />
-            <span>Quiz mode (auto-grade)</span>
-          </label>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Due:</span>
-            <input
-              type="datetime-local"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="border rounded-md p-1"
-            />
-          </div>
-
-          {/* Assignment-level timer (same format as question timers) */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Assignment timer:</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="e.g., 30:00 or 1800"
-              value={assignmentTimeInput}
-              onChange={(e) => setAssignmentTimeInput(e.target.value)}
-              onBlur={() => {
-                const sec = parseTimeToSeconds(assignmentTimeInput);
-                if (sec && sec > 0) {
-                  setAssignmentTimeLimit(sec);
-                  setAssignmentTimeInput(formatSeconds(sec));
-                } else {
-                  setAssignmentTimeLimit(null);
-                  setAssignmentTimeInput("");
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  (e.target as HTMLInputElement).blur();
-                }
-              }}
-              className="border rounded-md p-1 w-28"
-            />
-            <span className="text-xs text-gray-500">(min:sec or seconds)</span>
-          </div>
+    <div className="mx-auto max-w-6xl px-5 py-8 lg:px-8">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+            Teacher workflow
+          </p>
+          <h1 className="mt-1 text-3xl font-bold text-slate-950">
+            Create Assignment
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+            Build student-facing prompts and add the grading guidance instructors will review after AI scoring.
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-slate-500">
+            Current draft
+          </p>
+          <p className="mt-1 text-sm font-medium text-slate-900">
+            {questions.length} question{questions.length !== 1 ? "s" : ""} -{" "}
+            {questions.reduce((sum, q) => sum + (q.points || 0), 0)} points
+          </p>
         </div>
       </div>
 
-      {/* Questions */}
-      <div className="space-y-4">
-        {questions.map((q, idx) => (
-          <div key={q.id} className="bg-white rounded-lg shadow p-4">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-sm font-semibold text-gray-900">
-                  Question {idx + 1}
+      {/* Assignment meta */}
+      <section className="mb-6 rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h2 className="text-lg font-semibold text-slate-950">
+            Assignment Info
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Set the title, student instructions, and optional timing rules.
+          </p>
+        </div>
+        <div className="space-y-5 p-5">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Assignment Title
+              </label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Example: Unit 3 evidence response"
+                className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Due Date
+              </label>
+              <input
+                type="datetime-local"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Student Instructions
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Tell students what to submit, what resources they can use, and what a strong response should include."
+              className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              rows={3}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <input
+                type="checkbox"
+                checked={isQuiz}
+                onChange={(e) => setIsQuiz(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-900">
+                  Quiz mode
                 </span>
-                {q.type === "oral" && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Oral responses are graded from the saved transcript.
-                  </p>
-                )}
+                <span className="block text-sm text-slate-500">
+                  Multiple-choice questions can use the selected correct option.
+                </span>
+              </span>
+            </label>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <label className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Clock3 className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                Assignment Timer
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="30:00 or 1800"
+                  value={assignmentTimeInput}
+                  onChange={(e) => setAssignmentTimeInput(e.target.value)}
+                  onBlur={() => {
+                    const sec = parseTimeToSeconds(assignmentTimeInput);
+                    if (sec && sec > 0) {
+                      setAssignmentTimeLimit(sec);
+                      setAssignmentTimeInput(formatSeconds(sec));
+                    } else {
+                      setAssignmentTimeLimit(null);
+                      setAssignmentTimeInput("");
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-36"
+                />
+                <span className="text-xs text-slate-500">
+                  min:sec or total seconds
+                </span>
               </div>
-              <div className="flex items-center gap-2">
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Questions */}
+      <section className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">
+              Questions
+            </h2>
+            <p className="text-sm text-slate-500">
+              Add prompts, point values, and optional grading criteria for each response.
+            </p>
+          </div>
+        </div>
+        {questions.map((q, idx) => (
+          <div
+            key={q.id}
+            className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
+          >
+            {/* Header */}
+            <div className="flex flex-col gap-4 border-b border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-white text-blue-700 ring-1 ring-inset ring-slate-200">
+                  {q.type === "oral" ? (
+                    <Mic2 className="h-5 w-5" aria-hidden="true" />
+                  ) : q.type === "multiple" ? (
+                    <ListChecks className="h-5 w-5" aria-hidden="true" />
+                  ) : (
+                    <FilePlus2 className="h-5 w-5" aria-hidden="true" />
+                  )}
+                </div>
+                <div>
+                  <span className="text-sm font-semibold text-slate-950">
+                    Question {idx + 1}
+                  </span>
+                  <p className="mt-1 text-xs capitalize text-slate-500">
+                    {q.type === "oral"
+                      ? "Oral response - graded from the saved transcript"
+                      : q.type === "multiple"
+                      ? "Multiple choice"
+                      : "Short answer"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <select
                   value={q.type}
                   onChange={(e) => changeType(q.id, e.target.value as QType)}
-                  className="border rounded-md p-1"
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="short">Short answer</option>
                   <option value="multiple">Multiple choice</option>
@@ -812,103 +911,141 @@ export default function CreateAssignment() {
                 </select>
                 <button
                   onClick={() => removeQuestion(q.id)}
-                  className="text-red-600 text-sm hover:underline"
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50"
                 >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                   Remove
                 </button>
               </div>
             </div>
 
-            {/* Prompt */}
-            <label className="block text-sm font-medium mb-1">Prompt</label>
-            <textarea
-              value={q.text}
-              onChange={(e) => updateQuestion(q.id, { text: e.target.value })}
-              placeholder="Enter question text"
-              className="w-full border rounded-md p-2 mb-3"
-              rows={3}
-            />
-
-            {/* Media */}
-            <input
-              type="file"
-              accept="image/*,video/*"
-              onChange={(e) => handleMediaUpload(q.id, e)}
-              className="mb-3"
-            />
-            {q.media && (
-              <div className="mb-3">
-                {q.media.type === "image" ? (
-                  <img
-                    src={q.media.url}
-                    alt="Question media"
-                    width={200}
-                    className="rounded"
-                  />
-                ) : (
-                  <video
-                    src={q.media.url}
-                    controls
-                    width={220}
-                    className="rounded"
-                  />
-                )}
+            <div className="space-y-4 p-5">
+              {/* Prompt */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Prompt
+                </label>
+                <textarea
+                  value={q.text}
+                  onChange={(e) => updateQuestion(q.id, { text: e.target.value })}
+                  placeholder="Enter the question students will answer."
+                  className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  rows={3}
+                />
               </div>
-            )}
 
-            {/* Multiple choice options */}
-            {q.type === "multiple" && (
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">Options</label>
-                {q.options?.map((opt, i) => (
-                  <div key={i} className="flex items-center gap-2 mb-2">
-                    <input
-                      value={opt}
-                      onChange={(e) => updateOption(q.id, i, e.target.value)}
-                      placeholder={`Option ${i + 1}`}
-                      className="flex-1 border rounded-md p-2"
+              {/* Media */}
+              <label className="flex cursor-pointer flex-col gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 sm:flex-row sm:items-center sm:justify-between">
+                <span className="inline-flex items-center gap-2 font-medium text-slate-700">
+                  <ImagePlus className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                  Optional question media
+                </span>
+                <span className="text-xs text-slate-500">
+                  Image or video preview only
+                </span>
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={(e) => handleMediaUpload(q.id, e)}
+                  className="sr-only"
+                />
+              </label>
+              {q.media && (
+                <div>
+                  {q.media.type === "image" ? (
+                    <img
+                      src={q.media.url}
+                      alt="Question media"
+                      width={200}
+                      className="rounded-lg border border-slate-200 shadow-sm"
                     />
-                    {isQuiz && (
-                      <label className="text-sm flex items-center gap-1">
-                        <input
-                          type="radio"
-                          checked={q.correctOption === i}
-                          onChange={() => setCorrectOption(q.id, i)}
-                        />
-                        Correct
-                      </label>
-                    )}
-                    <button
-                      onClick={() => removeOption(q.id, i)}
-                      disabled={(q.options?.length ?? 0) <= 2}
-                      className="px-2 py-1 text-sm border rounded-md hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <button
-                  onClick={() => addOption(q.id)}
-                  className="text-blue-600 text-sm hover:underline"
-                >
-                  + Add option
-                </button>
-              </div>
-            )}
+                  ) : (
+                    <video
+                      src={q.media.url}
+                      controls
+                      width={220}
+                      className="rounded-lg border border-slate-200 shadow-sm"
+                    />
+                  )}
+                </div>
+              )}
 
-            {q.type !== "multiple" && (
-              <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
-                <div className="mb-3">
-                  <p className="text-sm font-semibold text-blue-950">
-                    AI grading guidance
-                  </p>
-                  <p className="mt-1 text-xs text-blue-800">
-                    Write criteria as point-based evidence. Good rubrics name what earns credit and what partial credit looks like.
-                  </p>
+              {/* Multiple choice options */}
+              {q.type === "multiple" && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-900">
+                      Answer Options
+                    </label>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {isQuiz
+                        ? "Select the correct option for deterministic grading."
+                        : "Add at least two choices for students."}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => addOption(q.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-3 py-1.5 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Add option
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {q.options?.map((opt, i) => (
+                    <div
+                      key={i}
+                      className="grid grid-cols-1 gap-2 rounded-md border border-slate-200 bg-white p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                    >
+                      <input
+                        value={opt}
+                        onChange={(e) => updateOption(q.id, i, e.target.value)}
+                        placeholder={`Option ${i + 1}`}
+                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                      {isQuiz && (
+                        <label className="inline-flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                          <input
+                            type="radio"
+                            checked={q.correctOption === i}
+                            onChange={() => setCorrectOption(q.id, i)}
+                            className="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          Correct
+                        </label>
+                      )}
+                      <button
+                        onClick={() => removeOption(q.id, i)}
+                        disabled={(q.options?.length ?? 0) <= 2}
+                        className="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              )}
+
+              {q.type !== "multiple" && (
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-blue-700 ring-1 ring-inset ring-blue-100">
+                    <Bot className="h-5 w-5" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-blue-950">
+                      AI grading guidance
+                    </p>
+                    <p className="mt-1 text-sm text-blue-800">
+                      Write point-based evidence. Strong rubrics name what earns full credit and what partial credit looks like.
+                    </p>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div>
-                    <label className="block text-sm font-medium mb-1">
+                    <label className="mb-1 block text-sm font-semibold text-blue-950">
                       Expected Answer
                     </label>
                     <textarea
@@ -917,15 +1054,15 @@ export default function CreateAssignment() {
                         updateQuestion(q.id, { expected_answer: e.target.value })
                       }
                       placeholder="Example: A strong answer explains the claim, cites relevant evidence, and connects the evidence back to the prompt."
-                      className="w-full border rounded-md p-2"
+                      className="w-full rounded-md border border-blue-200 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                       rows={4}
                     />
-                    <p className="mt-1 text-xs text-blue-800">
+                    <p className="mt-1 text-xs text-blue-700">
                       Use this as the target concept, not exact wording students must match.
                     </p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">
+                    <label className="mb-1 block text-sm font-semibold text-blue-950">
                       Rubric / Grading Criteria
                     </label>
                     <textarea
@@ -934,21 +1071,24 @@ export default function CreateAssignment() {
                         updateQuestion(q.id, { rubric: e.target.value })
                       }
                       placeholder="Example: 4 pts accuracy, 3 pts completeness, 2 pts reasoning, 1 pt clarity. Award partial credit for correct but incomplete explanations."
-                      className="w-full border rounded-md p-2"
+                      className="w-full rounded-md border border-blue-200 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                       rows={4}
                     />
-                    <p className="mt-1 text-xs text-blue-800">
+                    <p className="mt-1 text-xs text-blue-700">
                       Match the rubric total to the point value below for the most consistent grading.
                     </p>
                   </div>
                 </div>
               </div>
-            )}
+              )}
 
-            {/* Per-question timer (ALL types, same style as oral) */}
-            <div className="mb-3 space-y-1">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                Time limit for this question:
+              {/* Per-question timer (ALL types, same style as oral) */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <label className="flex flex-col gap-2 text-sm text-slate-700 sm:flex-row sm:items-center">
+                <span className="inline-flex items-center gap-2 font-semibold text-slate-900">
+                  <Clock3 className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                  Question time limit
+                </span>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -981,20 +1121,20 @@ export default function CreateAssignment() {
                       (e.target as HTMLInputElement).blur();
                     }
                   }}
-                  className="w-32 border rounded-md p-1"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-36"
                 />
-                <span className="text-gray-500 text-xs">
-                  (min:sec or seconds, leave empty for no limit)
+                <span className="text-xs text-slate-500">
+                  Leave empty for no limit.
                 </span>
               </label>
             </div>
 
-            {/* Points + Required */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {/* Points + Required */}
+            <div className="flex flex-col gap-3 rounded-lg border border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Points</span>
-                  <p className="text-xs text-gray-500">Maximum score for this question</p>
+                  <span className="text-sm font-semibold text-slate-900">Points</span>
+                  <p className="text-xs text-slate-500">Maximum score for this question</p>
                 </div>
                 <input
                   type="text"
@@ -1010,67 +1150,83 @@ export default function CreateAssignment() {
                       updateQuestion(q.id, { points: undefined });
                     }
                   }}
-                  className="w-20 border rounded-md p-1"
+                  className="w-24 rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
-              <label className="flex items-center gap-2">
+              <label className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
                 <input
                   type="checkbox"
                   checked={q.required ?? false}
                   onChange={(e) =>
                     updateQuestion(q.id, { required: e.target.checked })
                   }
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm">Required</span>
+                <span className="text-sm font-medium text-slate-700">Required</span>
               </label>
+            </div>
             </div>
           </div>
         ))}
-      </div>
+      </section>
 
       {/* Add question buttons */}
-      <div className="flex items-center gap-2 mt-4">
-        <span className="text-sm text-gray-600">Add:</span>
+      <div className="mt-5 flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white p-4">
+        <span className="mr-1 text-sm font-semibold text-slate-700">Add question:</span>
         <button
           onClick={() => addQuestionRow("short")}
-          className="px-3 py-1 text-sm border rounded-md hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
         >
-          + Short
+          <FilePlus2 className="h-4 w-4" aria-hidden="true" />
+          Short
         </button>
         <button
           onClick={() => addQuestionRow("multiple")}
-          className="px-3 py-1 text-sm border rounded-md hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
         >
-          + Multiple choice
+          <ListChecks className="h-4 w-4" aria-hidden="true" />
+          Multiple choice
         </button>
         <button
           onClick={() => addQuestionRow("oral")}
-          className="px-3 py-1 text-sm border rounded-md hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
         >
-          + Oral
+          <Mic2 className="h-4 w-4" aria-hidden="true" />
+          Oral
         </button>
       </div>
 
       {/* Save / Reset */}
-      <div className="mt-6 flex gap-3">
-        <button
-          disabled={!canSave || saving}
-          onClick={onSubmit}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save & Publish"}
-        </button>
-        <button
-          onClick={() => void handleReset()}
-          className="px-4 py-2 border rounded-md"
-        >
-          Reset
-        </button>
+      <div className="sticky bottom-0 z-10 -mx-5 mt-8 border-t border-slate-200 bg-white/95 px-5 py-4 shadow-lg backdrop-blur lg:-mx-8 lg:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-slate-600">
+            {canSave
+              ? "Ready to publish when you are."
+              : "Complete the required title, instructions, and question prompts."}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              disabled={!canSave || saving}
+              onClick={onSubmit}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" aria-hidden="true" />
+              {saving ? "Saving…" : "Save & Publish"}
+            </button>
+            <button
+              onClick={() => void handleReset()}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Reset
+            </button>
+          </div>
+        </div>
       </div>
 
       {draftIndicator && (
         <p
-          className={`mt-2 text-sm ${draftIndicator.className}`}
+          className={`mt-3 text-sm ${draftIndicator.className}`}
           aria-live="polite"
         >
           {draftIndicator.message}
@@ -1078,22 +1234,29 @@ export default function CreateAssignment() {
       )}
 
       {/* Feedback */}
-      {error && <p className="mt-3 text-red-600">{error}</p>}
+      {error && (
+        <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {result && (
-        <div className="mt-4 bg-green-50 border border-green-200 rounded-md p-3">
-          <p>
-            Created successfully! Total points:{" "}
-            {questions.reduce((sum, q) => sum + (q.points || 0), 0)}
-          </p>
-          <p>
-            <strong>ID:</strong> {result.assignmentId}
-          </p>
-          <p>
-            <strong>Link:</strong>{" "}
-            <code>{`${window.location.origin}${result.shareLink}`}</code>
-          </p>
-          <div className="mt-2 flex gap-2">
+        <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-4">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-700" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="font-semibold text-green-900">
+                Assignment created successfully
+              </p>
+              <p className="mt-1 text-sm text-green-800">
+                {questions.reduce((sum, q) => sum + (q.points || 0), 0)} total points - ID {result.assignmentId}
+              </p>
+              <code className="mt-2 block break-all rounded-md bg-white px-3 py-2 text-xs text-green-900">
+                {`${window.location.origin}${result.shareLink}`}
+              </code>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={() =>
                 window.open(
@@ -1101,7 +1264,7 @@ export default function CreateAssignment() {
                   "_blank"
                 )
               }
-              className="bg-blue-600 text-white px-4 py-2 rounded-md"
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
             >
               Preview as Student
             </button>
@@ -1111,7 +1274,7 @@ export default function CreateAssignment() {
                   `${window.location.origin}${result.shareLink}`
                 )
               }
-              className="border px-4 py-2 rounded-md"
+              className="rounded-md border border-green-300 bg-white px-4 py-2 text-sm font-semibold text-green-800 transition-colors hover:bg-green-100"
             >
               Copy Link
             </button>

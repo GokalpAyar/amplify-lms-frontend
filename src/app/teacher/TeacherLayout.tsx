@@ -12,7 +12,7 @@ import Header from '../../components/layout/Header';
 const TeacherLayout = ({ children }: { children: React.ReactNode }) => {
   return (
     // Outer container: full-height flex layout
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-slate-50">
       {/* Left: role-based sidebar navigation */}
       <Sidebar role="teacher" />
 
@@ -20,11 +20,10 @@ const TeacherLayout = ({ children }: { children: React.ReactNode }) => {
       <div className="flex flex-col flex-1 overflow-hidden">
         <Header />
         {/* Scrollable main content injected via props */}
-        <main className="p-4 overflow-y-auto">{children}</main>
+        <main className="overflow-y-auto bg-slate-50 p-4">{children}</main>
       </div>
     </div>
   );
 };
 
 export default TeacherLayout;
-

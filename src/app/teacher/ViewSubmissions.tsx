@@ -1,5 +1,19 @@
 // Enhanced ViewSubmissions.tsx
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  AlertTriangle,
+  Award,
+  Bot,
+  CheckCircle2,
+  ClipboardCheck,
+  Copy,
+  Eye,
+  Filter,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { BASE_URL, FRONTEND_ASSIGNMENT_URL } from "@/config";
 import { supabase } from "@/supabaseClient";
 
@@ -381,7 +395,7 @@ const getGradingStatusClass = (status?: string) => {
     case "failed":
       return "border-red-200 bg-red-50 text-red-700";
     default:
-      return "border-gray-200 bg-gray-50 text-gray-700";
+      return "border-slate-200 bg-slate-50 text-slate-700";
   }
 };
 
@@ -992,32 +1006,36 @@ const ViewSubmissions = () => {
     const gradeActionLabel = result ? "Regrade" : "Grade Automatically";
 
     return (
-      <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
+      <div className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h4 className="text-lg font-semibold text-gray-900">Automatic Grading</h4>
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+              <Bot className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h4 className="text-lg font-semibold text-slate-950">Automatic Grading</h4>
             {result?.grader_version && (
-              <p className="mt-1 text-xs text-gray-500">{result.grader_version}</p>
+                <p className="mt-1 text-xs text-slate-500">{result.grader_version}</p>
             )}
+            </div>
           </div>
           <button
             onClick={() => handleGradeAutomatically(submission)}
             disabled={isGrading}
-            className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
+            className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold transition-colors ${
               isGrading
-                ? "cursor-not-allowed bg-gray-200 text-gray-500"
+                ? "cursor-not-allowed bg-slate-200 text-slate-500"
                 : "bg-green-600 text-white hover:bg-green-700"
             }`}
           >
-            {isGrading && (
-              <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" />
-            )}
+            <RefreshCw className={`h-4 w-4 ${isGrading ? "animate-spin" : ""}`} aria-hidden="true" />
             {isGrading ? (result ? "Regrading..." : "Grading...") : gradeActionLabel}
           </button>
         </div>
 
         {localError && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {localError}
           </div>
         )}
@@ -1025,8 +1043,8 @@ const ViewSubmissions = () => {
         {result ? (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-500">Status</p>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Status</p>
                 <span
                   className={`mt-1 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${getGradingStatusClass(
                     result.status
@@ -1035,32 +1053,32 @@ const ViewSubmissions = () => {
                   {result.status || "unknown"}
                 </span>
               </div>
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-500">Score</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Score</p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">
                   {formatGradingNumber(result.total_score)} / {formatGradingNumber(result.max_score)}
                 </p>
               </div>
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-500">Percentage</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Percentage</p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">
                   {typeof result.percentage === "number"
                     ? `${formatGradingNumber(result.percentage)}%`
                     : "—"}
                 </p>
               </div>
-              <div>
-                <p className="text-xs font-semibold uppercase text-gray-500">Approved</p>
-                <p className={`mt-1 text-sm font-semibold ${isApproved ? "text-green-700" : "text-gray-500"}`}>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Approved</p>
+                <p className={`mt-1 text-sm font-semibold ${isApproved ? "text-green-700" : "text-slate-500"}`}>
                   {isApproved ? "Yes" : "Not yet"}
                 </p>
               </div>
             </div>
 
             {result.summary_feedback && (
-              <div className="rounded-md border border-gray-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase text-gray-500">Summary Feedback</p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase text-slate-500">Summary Feedback</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
                   {result.summary_feedback}
                 </p>
               </div>
@@ -1077,7 +1095,7 @@ const ViewSubmissions = () => {
 
             {questionResults.length > 0 && (
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-gray-900">Question Results</p>
+                <p className="text-sm font-semibold text-slate-950">Question Results</p>
                 {questionResults.map((questionResult, index) => {
                   const questionId = String(questionResult.question_id || "");
                   const matchingQuestion = gradingAssignment?.questions.find(
@@ -1100,44 +1118,44 @@ const ViewSubmissions = () => {
                   return (
                     <div
                       key={`${questionResult.question_id || "question"}-${index}`}
-                      className="rounded-md border border-gray-200 bg-white p-3"
+                      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
-                          <p className="text-sm font-semibold text-gray-900">
+                          <p className="text-sm font-semibold text-slate-950">
                             Question {index + 1}
-                            {matchingQuestion?.text ? ` · ${matchingQuestion.text}` : ""}
+                            {matchingQuestion?.text ? ` - ${matchingQuestion.text}` : ""}
                           </p>
-                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
                             {questionResult.question_type && (
-                              <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                              <span className="rounded-full bg-slate-100 px-2 py-1 capitalize">
                                 {questionResult.question_type}
                               </span>
                             )}
                             {questionResult.grading_method && (
-                              <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                              <span className="rounded-full bg-slate-100 px-2 py-1 capitalize">
                                 {questionResult.grading_method}
                               </span>
                             )}
                             {questionResult.source && (
-                              <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                              <span className="rounded-full bg-slate-100 px-2 py-1 capitalize">
                                 {questionResult.source}
                               </span>
                             )}
                             {questionResult.needs_review && (
-                              <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
+                              <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-800">
                                 Needs review
                               </span>
                             )}
                             {confidencePercent !== null && (
-                              <span className="rounded-full bg-gray-100 px-2 py-1">
+                              <span className="rounded-full bg-slate-100 px-2 py-1">
                                 Confidence {confidencePercent}%
                               </span>
                             )}
                           </div>
                         </div>
-                        <div className="rounded-lg bg-gray-900 px-3 py-2 text-right text-white">
-                          <p className="text-xs font-semibold uppercase text-gray-300">AI Score</p>
+                        <div className="rounded-lg bg-slate-950 px-3 py-2 text-right text-white">
+                          <p className="text-xs font-semibold uppercase text-slate-300">AI Score</p>
                           <p className="text-base font-bold">
                             {formatGradingNumber(questionResult.auto_score)} /{" "}
                             {formatGradingNumber(questionResult.points_possible)}
@@ -1146,11 +1164,11 @@ const ViewSubmissions = () => {
                       </div>
 
                       <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                        <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
-                          <p className="text-xs font-semibold uppercase text-gray-500">
+                        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs font-semibold uppercase text-slate-500">
                             {isTranscriptResult ? "Student Transcript" : "Student Answer"}
                           </p>
-                          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
                             {studentEvidence}
                           </p>
                         </div>
@@ -1189,7 +1207,7 @@ const ViewSubmissions = () => {
                         </div>
                       )}
                       {questionResult.expected_answer && (
-                        <p className="mt-2 text-xs text-gray-500">
+                        <p className="mt-2 text-xs text-slate-500">
                           Expected answer: {questionResult.expected_answer}
                         </p>
                       )}
@@ -1199,10 +1217,10 @@ const ViewSubmissions = () => {
               </div>
             )}
 
-            <div className="border-t border-gray-200 pt-4">
+            <div className="border-t border-slate-200 pt-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="sm:w-48">
-                  <label className="block text-sm font-medium text-gray-700" htmlFor={`approved-score-${submission.id}`}>
+                  <label className="block text-sm font-medium text-slate-700" htmlFor={`approved-score-${submission.id}`}>
                     Adjust Approved Score
                   </label>
                   <input
@@ -1217,18 +1235,19 @@ const ViewSubmissions = () => {
                         [submission.id]: event.target.value,
                       }))
                     }
-                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
                 <button
                   onClick={() => handleApproveGrade(submission)}
                   disabled={isApproving}
-                  className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
+                  className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
                     isApproving
-                      ? "cursor-not-allowed bg-gray-200 text-gray-500"
+                      ? "cursor-not-allowed bg-slate-200 text-slate-500"
                       : "bg-green-600 text-white hover:bg-green-700"
                   }`}
                 >
+                  <Award className="h-4 w-4" aria-hidden="true" />
                   {isApproving ? "Approving..." : "Approve Grade"}
                 </button>
               </div>
@@ -1251,55 +1270,74 @@ const ViewSubmissions = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex min-h-64 items-center justify-center">
+        <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+          Loading submissions
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="mx-auto max-w-7xl px-5 py-8 lg:px-8">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">📋 Student Submissions</h1>
-          <p className="text-gray-600 mt-1">
-            {filteredSubmissions.length} submission{filteredSubmissions.length !== 1 ? 's' : ''} found
+          <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+            Review workflow
           </p>
+          <h1 className="mt-1 text-3xl font-bold text-slate-950">
+            Student Submissions
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            {filteredSubmissions.length} submission{filteredSubmissions.length !== 1 ? 's' : ''} shown from {submissions.length} total.
+          </p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+          <span className="font-semibold text-slate-900">{assignments.length}</span>{" "}
+          <span className="text-slate-500">assignment{assignments.length !== 1 ? "s" : ""}</span>
         </div>
       </div>
 
       {loadError && (
-        <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-6 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           {loadError}
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase text-gray-500">Total</p>
-          <p className="mt-1 text-2xl font-bold text-gray-900">{gradingWorkflowStats.total}</p>
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-slate-500">Total</p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">{gradingWorkflowStats.total}</p>
         </div>
         <div className="rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase text-green-700">Auto-Graded</p>
-          <p className="mt-1 text-2xl font-bold text-green-900">{gradingWorkflowStats.autoGraded}</p>
+          <p className="mt-2 text-3xl font-bold text-green-950">{gradingWorkflowStats.autoGraded}</p>
         </div>
-        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase text-yellow-700">Needs Review</p>
-          <p className="mt-1 text-2xl font-bold text-yellow-900">{gradingWorkflowStats.needsReview}</p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-amber-700">Needs Review</p>
+          <p className="mt-2 text-3xl font-bold text-amber-950">{gradingWorkflowStats.needsReview}</p>
         </div>
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase text-blue-700">Approved</p>
-          <p className="mt-1 text-2xl font-bold text-blue-900">{gradingWorkflowStats.approved}</p>
+          <p className="mt-2 text-3xl font-bold text-blue-950">{gradingWorkflowStats.approved}</p>
         </div>
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase text-red-700">Failed Grading</p>
-          <p className="mt-1 text-2xl font-bold text-red-900">{gradingWorkflowStats.failed}</p>
+          <p className="mt-2 text-3xl font-bold text-red-950">{gradingWorkflowStats.failed}</p>
         </div>
       </div>
 
       {/* Filters and Controls */}
-      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-        <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <Filter className="h-4 w-4 text-slate-500" aria-hidden="true" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+            Filters
+          </h2>
+        </div>
+        <div className="mb-5 flex flex-wrap gap-2">
           {gradingFilterTabs.map((tab) => (
             <button
               key={tab.key}
@@ -1307,13 +1345,13 @@ const ViewSubmissions = () => {
               className={`rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
                 gradingFilter === tab.key
                   ? "border-blue-600 bg-blue-600 text-white"
-                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
               {tab.label}
               <span
                 className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-                  gradingFilter === tab.key ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
+                  gradingFilter === tab.key ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"
                 }`}
               >
                 {gradingFilterCounts[tab.key]}
@@ -1324,27 +1362,30 @@ const ViewSubmissions = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700">
               Search Students
             </label>
-            <input
-              type="text"
-              placeholder="Search by name or JNumber..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" />
+              <input
+                type="text"
+                placeholder="Name or J-number"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-9 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
           </div>
 
           {/* Filter by Assignment */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700">
               Filter by Assignment
             </label>
             <select
               value={filterAssignment}
               onChange={(e) => setFilterAssignment(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="all">All Assignments</option>
               {assignments.map(assignment => (
@@ -1357,13 +1398,13 @@ const ViewSubmissions = () => {
 
           {/* Sort By */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="mb-1 block text-sm font-medium text-slate-700">
               Sort By
             </label>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="date">Submission Date</option>
               <option value="name">Student Name</option>
@@ -1372,9 +1413,9 @@ const ViewSubmissions = () => {
           </div>
 
           {/* Quick Stats */}
-          <div className="bg-blue-50 rounded-lg p-3">
-            <div className="text-sm text-blue-800 font-medium">Showing</div>
-            <div className="text-2xl font-bold text-blue-900">{filteredSubmissions.length}</div>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+            <div className="text-sm font-semibold text-blue-800">Showing</div>
+            <div className="text-2xl font-bold text-blue-950">{filteredSubmissions.length}</div>
           </div>
         </div>
       </div>
@@ -1404,15 +1445,17 @@ const ViewSubmissions = () => {
         )}
 
         {/* Assignments List */}
-        <div className="mb-6">
+        <div className="mb-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Assignments</h2>
-              <p className="text-sm text-gray-600">
+              <h2 className="text-lg font-semibold text-slate-950">Assignments</h2>
+              <p className="text-sm text-slate-500">
                 Manage assignments and remove those you no longer need.
               </p>
             </div>
-            <span className="text-sm text-gray-500">{assignments.length} total</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600">
+              {assignments.length} total
+            </span>
           </div>
 
           {deleteFeedback && (
@@ -1429,7 +1472,7 @@ const ViewSubmissions = () => {
           )}
 
             {assignments.length === 0 ? (
-              <div className="bg-white border rounded-lg p-6 text-center text-gray-500">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-slate-500">
                 No assignments available.
               </div>
             ) : (
@@ -1439,14 +1482,14 @@ const ViewSubmissions = () => {
                   return (
                     <div
                       key={assignment.id}
-                      className="bg-white border rounded-lg shadow-sm p-4 flex flex-col"
+                      className="flex flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
                     >
                       <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{assignment.title}</h3>
+                        <h3 className="text-lg font-semibold text-slate-950">{assignment.title}</h3>
                         {assignment.description && (
-                          <p className="text-sm text-gray-600 mt-1">{assignment.description}</p>
+                          <p className="mt-1 line-clamp-2 text-sm text-slate-600">{assignment.description}</p>
                         )}
-                        <div className="mt-3 text-sm text-gray-500 space-y-1">
+                        <div className="mt-3 space-y-1 text-sm text-slate-500">
                           {assignment.dueDate && (
                             <p>Due {new Date(assignment.dueDate).toLocaleDateString()}</p>
                           )}
@@ -1457,7 +1500,7 @@ const ViewSubmissions = () => {
                         </div>
                       </div>
 
-                      <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                      <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold uppercase tracking-wide text-blue-900">
@@ -1474,8 +1517,9 @@ const ViewSubmissions = () => {
                           </div>
                           <button
                             onClick={() => handleCopyAssignmentLink(assignment.id)}
-                            className="inline-flex items-center justify-center whitespace-nowrap rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-blue-700 shadow-sm ring-1 ring-inset ring-blue-200 transition-colors hover:bg-blue-50"
+                            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md bg-white px-3 py-1.5 text-sm font-semibold text-blue-700 shadow-sm ring-1 ring-inset ring-blue-200 transition-colors hover:bg-blue-50"
                           >
+                            <Copy className="h-4 w-4" aria-hidden="true" />
                             Copy Link
                           </button>
                         </div>
@@ -1488,12 +1532,13 @@ const ViewSubmissions = () => {
                         <button
                           onClick={() => handleDeleteAssignment(assignment.id)}
                           disabled={deletingAssignmentId === assignment.id}
-                          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                          className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
                             deletingAssignmentId === assignment.id
-                              ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                              : "bg-red-100 text-red-700 hover:bg-red-200"
+                              ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                              : "bg-red-50 text-red-700 hover:bg-red-100"
                           }`}
                         >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
                           {deletingAssignmentId === assignment.id ? "Deleting..." : "Delete"}
                         </button>
                       </div>
@@ -1506,10 +1551,10 @@ const ViewSubmissions = () => {
 
       {/* Submissions Table */}
       {filteredSubmissions.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border">
-          <div className="text-gray-400 text-6xl mb-4">📭</div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No submissions found</h3>
-          <p className="text-gray-600">
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white py-12 text-center">
+          <ClipboardCheck className="mx-auto mb-4 h-10 w-10 text-slate-300" aria-hidden="true" />
+          <h3 className="mb-2 text-lg font-semibold text-slate-950">No submissions found</h3>
+          <p className="text-slate-600">
             {searchTerm || filterAssignment !== "all" || gradingFilter !== "all"
               ? "Try adjusting your filters or search terms."
               : "Students haven't submitted any work yet."
@@ -1517,32 +1562,40 @@ const ViewSubmissions = () => {
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="text-lg font-semibold text-slate-950">
+              Submission Queue
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Review answers, trigger grading, and approve final scores.
+            </p>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b">
+              <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Student
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     J Number
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Assignment
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Submitted
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Student Rating
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-100">
                 {filteredSubmissions.map((sub) => {
                   const assignment = assignments.find(a => a.id === sub.assignment_id);
                   const studentRatingValue = safeNumber(sub.student_accuracy_rating);
@@ -1556,44 +1609,44 @@ const ViewSubmissions = () => {
                   const rowStatusLabel = getSubmissionGradingLabel(rowGradingResult, rowIsGrading);
                   const rowActionLabel = rowGradingResult ? "Regrade" : "Grade Automatically";
                   return (
-                    <tr key={sub.id} className="hover:bg-gray-50">
+                    <tr key={sub.id} className="transition-colors hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{sub.studentName}</div>
+                        <div className="font-semibold text-slate-950">{sub.studentName}</div>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{sub.jNumber}</td>
+                      <td className="px-4 py-3 text-slate-600">{sub.jNumber}</td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">
+                        <div className="font-medium text-slate-900">
                           {assignment?.title || "Unknown Assignment"}
                         </div>
                         {assignment?.description && (
-                          <div className="text-sm text-gray-500 truncate max-w-xs">
+                          <div className="max-w-xs truncate text-sm text-slate-500">
                             {assignment.description}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">
+                      <td className="px-4 py-3 text-slate-600">
                         <div>{new Date(sub.submittedAt).toLocaleDateString()}</div>
-                        <div className="text-sm text-gray-400">
+                        <div className="text-sm text-slate-400">
                           {new Date(sub.submittedAt).toLocaleTimeString()}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
+                      <td className="px-4 py-3 text-sm text-slate-700">
                         {studentRatingDisplay ? (
                           <div className="space-y-1">
-                            <p className="font-medium text-gray-800">
+                            <p className="font-medium text-slate-800">
                               Student Rating:{" "}
-                              <span className="text-yellow-600">
+                              <span className="text-amber-600">
                                 {studentRatingDisplay.stars} ({studentRatingDisplay.clamped}/5)
                               </span>
                             </p>
                             {studentRatingComment && (
-                              <p className="text-gray-600">
-                                Student Comment: <span className="text-gray-800">{studentRatingComment}</span>
+                              <p className="text-slate-600">
+                                Student Comment: <span className="text-slate-800">{studentRatingComment}</span>
                               </p>
                             )}
                           </div>
                         ) : (
-                          <p className="text-gray-500">No student rating yet</p>
+                          <p className="text-slate-500">No student rating yet</p>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -1611,12 +1664,13 @@ const ViewSubmissions = () => {
                             <button
                               onClick={() => handleGradeAutomatically(sub)}
                               disabled={rowIsGrading}
-                              className={`px-4 py-2 rounded-md transition-colors text-sm font-medium ${
+                              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
                                 rowIsGrading
-                                  ? "cursor-not-allowed bg-gray-200 text-gray-500"
+                                  ? "cursor-not-allowed bg-slate-200 text-slate-500"
                                   : "bg-green-600 text-white hover:bg-green-700"
                               }`}
                             >
+                              <RefreshCw className={`h-4 w-4 ${rowIsGrading ? "animate-spin" : ""}`} aria-hidden="true" />
                               {rowIsGrading
                                 ? rowGradingResult
                                   ? "Regrading..."
@@ -1625,19 +1679,23 @@ const ViewSubmissions = () => {
                             </button>
                             <button
                               onClick={() => setSelected(sub)}
-                              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm font-medium"
+                              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                             >
+                              <Eye className="h-4 w-4" aria-hidden="true" />
                               View Details
                             </button>
                           </div>
                           {rowGradingResult && (
                             <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span className="text-gray-600">
+                              <span className="font-medium text-slate-600">
                                 {formatGradingNumber(rowGradingResult.total_score)} /{" "}
                                 {formatGradingNumber(rowGradingResult.max_score)}
                               </span>
                               {rowApproved && (
-                                <span className="font-semibold text-green-700">Approved</span>
+                                <span className="inline-flex items-center gap-1 font-semibold text-green-700">
+                                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                                  Approved
+                                </span>
                               )}
                             </div>
                           )}
@@ -1657,32 +1715,35 @@ const ViewSubmissions = () => {
 
       {/* Modal for viewing submission details */}
       {selected && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-6 border-b">
-              <div className="flex justify-between items-start">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg bg-white shadow-2xl">
+            <div className="border-b border-slate-200 bg-slate-50 px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    🧑‍🎓 {selected.studentName} ({selected.jNumber})
+                  <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+                    Submission details
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    {selected.studentName} ({selected.jNumber})
                   </h2>
-                  <p className="text-sm text-gray-600 mt-1">
+                  <p className="mt-1 text-sm text-slate-600">
                     Submitted: {new Date(selected.submittedAt).toLocaleString()}
                   </p>
                 </div>
                 <button
                   onClick={() => setSelected(null)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-white hover:text-slate-900"
                 >
-                  ×
+                  <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
             </div>
 
-              <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <div className="max-h-[calc(90vh-120px)] overflow-y-auto p-6">
                 {activeAssignment ? (
                   <div className="space-y-6">
-                    <div className="bg-blue-50 rounded-lg p-4">
-                      <h3 className="text-lg font-bold text-blue-900">
+                    <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                      <h3 className="text-lg font-bold text-blue-950">
                         {activeAssignment.title}
                       </h3>
                       {activeAssignment.description && (
@@ -1717,28 +1778,28 @@ const ViewSubmissions = () => {
                           : [];
                         const availableFormats = isOral
                           ? formatBadges.length > 0
-                            ? formatBadges.join(" · ")
-                            : SUPPORTED_AUDIO_LABELS.join(" · ")
+                            ? formatBadges.join(" / ")
+                            : SUPPORTED_AUDIO_LABELS.join(" / ")
                           : "";
                         const hasAudioSources = isOral ? Boolean(oralBundle?.sources?.length) : false;
 
                       return (
-                        <div key={q.id} className="border-l-4 border-blue-500 pl-4 py-2 space-y-4">
-                          <p className="font-medium text-gray-800 mb-2">
+                        <div key={q.id} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                          <p className="font-semibold text-slate-900">
                             {i + 1}. {q.text}
                           </p>
 
                           {q.type === "short" && (
-                            <div className="bg-gray-50 rounded-lg p-3">
-                              <p className="text-gray-700 whitespace-pre-wrap">
+                            <div className="rounded-lg bg-slate-50 p-3">
+                              <p className="whitespace-pre-wrap text-slate-700">
                                 {answerText || "No answer provided."}
                               </p>
                             </div>
                           )}
 
                           {q.type === "multiple" && (
-                            <div className="bg-gray-50 rounded-lg p-3">
-                              <p className="text-gray-700">
+                            <div className="rounded-lg bg-slate-50 p-3">
+                              <p className="text-slate-700">
                                 Selected: <strong>{answerText || "No answer selected."}</strong>
                               </p>
                             </div>
@@ -1747,21 +1808,21 @@ const ViewSubmissions = () => {
                           {isOral && (
                             <div className="space-y-4">
                               <div className="grid gap-4 lg:grid-cols-2">
-                                <div className="bg-purple-50 rounded-lg p-3">
-                                  <p className="text-sm text-purple-700 font-medium mb-1">
-                                    🎙️ Oral Response Transcript
+                                <div className="rounded-lg border border-purple-100 bg-purple-50 p-3">
+                                  <p className="mb-1 text-sm font-semibold text-purple-700">
+                                    Oral Response Transcript
                                   </p>
-                                  <p className="text-gray-700 whitespace-pre-wrap">
+                                  <p className="whitespace-pre-wrap text-slate-700">
                                     {transcriptText}
                                   </p>
                                 </div>
-                                <div className="rounded-lg border bg-white p-4 shadow-sm">
+                                <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                                   <div className="flex items-center justify-between mb-3">
-                                    <p className="text-sm font-semibold text-gray-800">
+                                    <p className="text-sm font-semibold text-slate-800">
                                       Original Recording
                                     </p>
-                                    <p className="text-xs text-gray-500">
-                                      Supports {SUPPORTED_AUDIO_LABELS.join(" · ")}
+                                    <p className="text-xs text-slate-500">
+                                      Supports {SUPPORTED_AUDIO_LABELS.join(" / ")}
                                     </p>
                                   </div>
 
@@ -1879,43 +1940,44 @@ const ViewSubmissions = () => {
                       );
                     })}
 
-                      <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-                        <h4 className="text-lg font-semibold text-yellow-900 mb-2">Student Self-Rating</h4>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                        <h4 className="mb-2 text-lg font-semibold text-amber-950">Student Self-Rating</h4>
                         {selectedStudentRatingDisplay ? (
-                          <div className="space-y-2 text-yellow-900">
+                          <div className="space-y-2 text-amber-950">
                             <p className="font-medium">
                               Student Rating:{" "}
                               <span className="text-xl">{selectedStudentRatingDisplay.stars}</span>{" "}
-                              <span className="text-sm text-yellow-800">
+                              <span className="text-sm text-amber-800">
                                 ({selectedStudentRatingDisplay.clamped}/5)
                               </span>
                             </p>
                             {selectedStudentRatingComment && (
                               <p className="text-sm">
                                 Student Comment:{" "}
-                                <span className="font-medium text-yellow-900">
+                                <span className="font-medium text-amber-950">
                                   {selectedStudentRatingComment}
                                 </span>
                               </p>
                             )}
                           </div>
                         ) : (
-                          <p className="text-yellow-900">No student rating yet.</p>
+                          <p className="text-amber-950">No student rating yet.</p>
                         )}
                       </div>
                   </div>
                 ) : (
-                  <p className="text-red-500 text-center py-8">
-                    ⚠️ Assignment data not found
-                  </p>
+                  <div className="flex items-center justify-center gap-2 py-8 text-red-600">
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                    <span>Assignment data not found</span>
+                  </div>
                 )}
               </div>
 
-            <div className="p-6 border-t bg-gray-50">
+            <div className="border-t border-slate-200 bg-slate-50 p-5">
               <div className="flex justify-end">
                 <button
                   onClick={() => setSelected(null)}
-                  className="bg-gray-500 text-white px-6 py-2 rounded-lg hover:bg-gray-600 transition-colors font-medium"
+                  className="rounded-md bg-slate-700 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
                 >
                   Close
                 </button>
