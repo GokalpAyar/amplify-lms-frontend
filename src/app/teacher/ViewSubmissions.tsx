@@ -316,6 +316,15 @@ interface GradingResult {
 }
 
 type GradingRequestStatus = "idle" | "loading" | "error";
+type GradingFilter = "all" | "auto_graded" | "needs_review" | "approved" | "failed";
+
+const gradingFilterTabs: { key: GradingFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "auto_graded", label: "Auto-Graded" },
+  { key: "needs_review", label: "Needs Review" },
+  { key: "approved", label: "Approved" },
+  { key: "failed", label: "Failed Grading" },
+];
 
 const parseApiPayload = async (response: globalThis.Response): Promise<unknown> => {
   const text = await response.text();
@@ -376,12 +385,56 @@ const getGradingStatusClass = (status?: string) => {
   }
 };
 
+const isApprovedResult = (result?: GradingResult | null) =>
+  Boolean(result?.approved_at) || result?.status === "approved";
+
+const isAutoGradedResult = (result?: GradingResult | null) =>
+  Boolean(result && ["completed", "reviewed", "approved"].includes(result.status));
+
+const hasNeedsReview = (result?: GradingResult | null) => {
+  if (!result || isApprovedResult(result) || result.status === "failed") return false;
+  return normalizeQuestionResults(result.question_results).some((item) => Boolean(item.needs_review));
+};
+
+const matchesGradingFilter = (
+  result: GradingResult | null | undefined,
+  filter: GradingFilter
+) => {
+  switch (filter) {
+    case "auto_graded":
+      return isAutoGradedResult(result);
+    case "needs_review":
+      return hasNeedsReview(result);
+    case "approved":
+      return isApprovedResult(result);
+    case "failed":
+      return result?.status === "failed";
+    case "all":
+    default:
+      return true;
+  }
+};
+
+const getSubmissionGradingLabel = (
+  result: GradingResult | null | undefined,
+  isGrading: boolean
+) => {
+  if (isGrading) return "Grading";
+  if (!result) return "Not graded";
+  if (isApprovedResult(result)) return "Approved";
+  if (result.status === "failed") return "Failed";
+  if (hasNeedsReview(result)) return "Needs review";
+  return result.status || "Auto-graded";
+};
+
 const ViewSubmissions = () => {
   const [submissions, setSubmissions] = useState<StudentResponse[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<StudentResponse | null>(null);
   const [filterAssignment, setFilterAssignment] = useState<string>("all");
+  const [gradingFilter, setGradingFilter] = useState<GradingFilter>("all");
   const [sortBy, setSortBy] = useState<"name" | "date" | "assignment">("date");
   const [searchTerm, setSearchTerm] = useState("");
   const [deletingAssignmentId, setDeletingAssignmentId] = useState<string | null>(null);
@@ -430,9 +483,32 @@ const ViewSubmissions = () => {
       [responseId]:
         typeof defaultScore === "number" && Number.isFinite(defaultScore)
           ? String(defaultScore)
-          : prev[responseId] ?? "",
+          : "",
     }));
   }, []);
+
+  const fetchGradingResultForResponse = useCallback(
+    async (responseId: string) => {
+      const response = await authedFetch(`${BASE_URL}/responses/${responseId}/grading-result`);
+
+      if (response.status === 404) {
+        storeGradingResult(responseId, null);
+        return null;
+      }
+
+      const payload = await parseApiPayload(response);
+      if (!response.ok) {
+        throw new Error(
+          extractApiErrorMessage(payload, "Failed to load automatic grading result.")
+        );
+      }
+
+      const result = payload as GradingResult;
+      storeGradingResult(responseId, result);
+      return result;
+    },
+    [authedFetch, storeGradingResult]
+  );
 
   const getAssignmentLink = (assignmentId: string) =>
     `${FRONTEND_ASSIGNMENT_URL}/${assignmentId}`;
@@ -606,22 +682,36 @@ const ViewSubmissions = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        setLoadError(null);
         const assignRes = await authedFetch(`${BASE_URL}/assignments/`);
+        if (!assignRes.ok) {
+          throw new Error("Failed to load assignments.");
+        }
         const assignData = await assignRes.json();
         setAssignments(Array.isArray(assignData) ? assignData : []);
 
         const respRes = await authedFetch(`${BASE_URL}/responses/`);
+        if (!respRes.ok) {
+          throw new Error("Failed to load submissions.");
+        }
         const respData = await respRes.json();
-        setSubmissions(Array.isArray(respData) ? respData : []);
+        const responseList = Array.isArray(respData) ? respData : [];
+        setSubmissions(responseList);
+        responseList.forEach((submission: StudentResponse) => {
+          void fetchGradingResultForResponse(submission.id).catch((error) => {
+            console.warn("Failed to load grading result for", submission.id, error);
+          });
+        });
       } catch (err) {
         console.error("❌ Failed to load data:", err);
+        setLoadError(err instanceof Error ? err.message : "Failed to load submissions.");
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [authedFetch]);
+  }, [authedFetch, fetchGradingResultForResponse]);
 
   useEffect(() => {
     if (!selected) return;
@@ -631,23 +721,8 @@ const ViewSubmissions = () => {
 
     const fetchExistingGradingResult = async () => {
       try {
-        const response = await authedFetch(`${BASE_URL}/responses/${selected.id}/grading-result`);
-
-        if (response.status === 404) {
-          if (!isCancelled) storeGradingResult(selected.id, null);
-          return;
-        }
-
-        const payload = await parseApiPayload(response);
-        if (!response.ok) {
-          throw new Error(
-            extractApiErrorMessage(payload, "Failed to load automatic grading result.")
-          );
-        }
-
-        if (!isCancelled) {
-          storeGradingResult(selected.id, payload as GradingResult);
-        }
+        const result = await fetchGradingResultForResponse(selected.id);
+        if (isCancelled || result) return;
       } catch (error) {
         if (isCancelled) return;
         console.error("❌ Failed to load grading result:", error);
@@ -666,9 +741,11 @@ const ViewSubmissions = () => {
     return () => {
       isCancelled = true;
     };
-  }, [selected, gradingResults, authedFetch, storeGradingResult]);
+  }, [selected, gradingResults, fetchGradingResultForResponse]);
 
   const handleGradeAutomatically = async (submission: StudentResponse) => {
+    if (gradingStatus[submission.id] === "loading") return;
+
     setSelected(submission);
     setGradingStatus((prev) => ({ ...prev, [submission.id]: "loading" }));
     setGradingErrors((prev) => ({ ...prev, [submission.id]: null }));
@@ -751,6 +828,35 @@ const ViewSubmissions = () => {
     }
   };
 
+  const gradingWorkflowStats = useMemo(() => {
+    return submissions.reduce(
+      (stats, submission) => {
+        const result = gradingResults[submission.id];
+        stats.total += 1;
+        if (isAutoGradedResult(result)) stats.autoGraded += 1;
+        if (hasNeedsReview(result)) stats.needsReview += 1;
+        if (isApprovedResult(result)) stats.approved += 1;
+        if (result?.status === "failed") stats.failed += 1;
+        return stats;
+      },
+      {
+        total: 0,
+        autoGraded: 0,
+        needsReview: 0,
+        approved: 0,
+        failed: 0,
+      }
+    );
+  }, [submissions, gradingResults]);
+
+  const gradingFilterCounts: Record<GradingFilter, number> = {
+    all: gradingWorkflowStats.total,
+    auto_graded: gradingWorkflowStats.autoGraded,
+    needs_review: gradingWorkflowStats.needsReview,
+    approved: gradingWorkflowStats.approved,
+    failed: gradingWorkflowStats.failed,
+  };
+
   // Filter and sort submissions
   const filteredSubmissions = useMemo(() => {
     let filtered = submissions;
@@ -758,6 +864,12 @@ const ViewSubmissions = () => {
     // Filter by assignment
     if (filterAssignment !== "all") {
       filtered = filtered.filter(sub => sub.assignment_id === filterAssignment);
+    }
+
+    if (gradingFilter !== "all") {
+      filtered = filtered.filter((sub) =>
+        matchesGradingFilter(gradingResults[sub.id], gradingFilter)
+      );
     }
 
     // Filter by search term
@@ -787,7 +899,7 @@ const ViewSubmissions = () => {
     });
 
     return filtered;
-  }, [submissions, assignments, filterAssignment, sortBy, searchTerm]);
+  }, [submissions, assignments, filterAssignment, gradingFilter, gradingResults, sortBy, searchTerm]);
 
     // Group assignments by class (you can enhance this with actual class data later)
     const assignmentGroups = useMemo(() => {
@@ -875,7 +987,9 @@ const ViewSubmissions = () => {
     const isApproving = Boolean(approvingIds[submission.id]);
     const localError = gradingErrors[submission.id];
     const approvedScore = approvalScores[submission.id] ?? "";
-    const isApproved = result?.status === "approved" || Boolean(result?.approved_at);
+    const isApproved = isApprovedResult(result);
+    const gradingAssignment = assignments.find((assignment) => assignment.id === submission.assignment_id);
+    const gradeActionLabel = result ? "Regrade" : "Grade Automatically";
 
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-4">
@@ -898,7 +1012,7 @@ const ViewSubmissions = () => {
             {isGrading && (
               <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-white" />
             )}
-            {isGrading ? "Grading..." : "Grade Automatically"}
+            {isGrading ? (result ? "Regrading..." : "Grading...") : gradeActionLabel}
           </button>
         </div>
 
@@ -964,86 +1078,124 @@ const ViewSubmissions = () => {
             {questionResults.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-gray-900">Question Results</p>
-                {questionResults.map((questionResult, index) => (
-                  <div
-                    key={`${questionResult.question_id || "question"}-${index}`}
-                    className="rounded-md border border-gray-200 bg-white p-3"
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">
-                          Question {index + 1}
-                          {questionResult.question_id ? ` · ${questionResult.question_id}` : ""}
-                        </p>
-                        <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
-                          {questionResult.question_type && (
-                            <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
-                              {questionResult.question_type}
-                            </span>
-                          )}
-                          {questionResult.grading_method && (
-                            <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
-                              {questionResult.grading_method}
-                            </span>
-                          )}
-                          {questionResult.source && (
-                            <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
-                              {questionResult.source}
-                            </span>
-                          )}
-                          {questionResult.needs_review && (
-                            <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
-                              Needs review
-                            </span>
-                          )}
-                          {typeof questionResult.confidence === "number" && (
-                            <span className="rounded-full bg-gray-100 px-2 py-1">
-                              Confidence {Math.round(questionResult.confidence * 100)}%
-                            </span>
-                          )}
+                {questionResults.map((questionResult, index) => {
+                  const questionId = String(questionResult.question_id || "");
+                  const matchingQuestion = gradingAssignment?.questions.find(
+                    (question) => question.id === questionId
+                  );
+                  const evidenceQuestionId = matchingQuestion?.id || questionId;
+                  const isTranscriptResult =
+                    matchingQuestion?.type === "oral" || questionResult.source === "transcript";
+                  const studentEvidence = isTranscriptResult
+                    ? submission.transcripts?.[evidenceQuestionId] ||
+                      resolveAnswerText(submission.answers?.[evidenceQuestionId]) ||
+                      "No transcript available."
+                    : resolveAnswerText(submission.answers?.[evidenceQuestionId]) ||
+                      "No answer provided.";
+                  const confidencePercent =
+                    typeof questionResult.confidence === "number"
+                      ? Math.round(questionResult.confidence * 100)
+                      : null;
+
+                  return (
+                    <div
+                      key={`${questionResult.question_id || "question"}-${index}`}
+                      className="rounded-md border border-gray-200 bg-white p-3"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">
+                            Question {index + 1}
+                            {matchingQuestion?.text ? ` · ${matchingQuestion.text}` : ""}
+                          </p>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
+                            {questionResult.question_type && (
+                              <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                                {questionResult.question_type}
+                              </span>
+                            )}
+                            {questionResult.grading_method && (
+                              <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                                {questionResult.grading_method}
+                              </span>
+                            )}
+                            {questionResult.source && (
+                              <span className="rounded-full bg-gray-100 px-2 py-1 capitalize">
+                                {questionResult.source}
+                              </span>
+                            )}
+                            {questionResult.needs_review && (
+                              <span className="rounded-full bg-yellow-100 px-2 py-1 text-yellow-800">
+                                Needs review
+                              </span>
+                            )}
+                            {confidencePercent !== null && (
+                              <span className="rounded-full bg-gray-100 px-2 py-1">
+                                Confidence {confidencePercent}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-gray-900 px-3 py-2 text-right text-white">
+                          <p className="text-xs font-semibold uppercase text-gray-300">AI Score</p>
+                          <p className="text-base font-bold">
+                            {formatGradingNumber(questionResult.auto_score)} /{" "}
+                            {formatGradingNumber(questionResult.points_possible)}
+                          </p>
                         </div>
                       </div>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {formatGradingNumber(questionResult.auto_score)} /{" "}
-                        {formatGradingNumber(questionResult.points_possible)}
-                      </p>
-                    </div>
-                    {questionResult.feedback && (
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-gray-700">
-                        {questionResult.feedback}
-                      </p>
-                    )}
-                    {(questionResult.strengths || questionResult.missing_points) && (
-                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {questionResult.strengths && (
-                          <div className="rounded-md bg-green-50 p-2 text-sm text-green-800">
-                            <p className="text-xs font-semibold uppercase text-green-700">
-                              Strengths
-                            </p>
-                            <p className="mt-1 whitespace-pre-wrap">
-                              {questionResult.strengths}
-                            </p>
-                          </div>
-                        )}
-                        {questionResult.missing_points && (
-                          <div className="rounded-md bg-amber-50 p-2 text-sm text-amber-800">
-                            <p className="text-xs font-semibold uppercase text-amber-700">
-                              Missing Points
-                            </p>
-                            <p className="mt-1 whitespace-pre-wrap">
-                              {questionResult.missing_points}
-                            </p>
-                          </div>
-                        )}
+
+                      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                        <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-xs font-semibold uppercase text-gray-500">
+                            {isTranscriptResult ? "Student Transcript" : "Student Answer"}
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">
+                            {studentEvidence}
+                          </p>
+                        </div>
+                        <div className="rounded-md border border-blue-100 bg-blue-50 p-3">
+                          <p className="text-xs font-semibold uppercase text-blue-700">
+                            AI Feedback
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-blue-950">
+                            {questionResult.feedback || "No feedback returned."}
+                          </p>
+                        </div>
                       </div>
-                    )}
-                    {questionResult.expected_answer && (
-                      <p className="mt-2 text-xs text-gray-500">
-                        Expected answer: {questionResult.expected_answer}
-                      </p>
-                    )}
-                  </div>
-                ))}
+
+                      {(questionResult.strengths || questionResult.missing_points) && (
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {questionResult.strengths && (
+                            <div className="rounded-md bg-green-50 p-2 text-sm text-green-800">
+                              <p className="text-xs font-semibold uppercase text-green-700">
+                                Strengths
+                              </p>
+                              <p className="mt-1 whitespace-pre-wrap">
+                                {questionResult.strengths}
+                              </p>
+                            </div>
+                          )}
+                          {questionResult.missing_points && (
+                            <div className="rounded-md bg-amber-50 p-2 text-sm text-amber-800">
+                              <p className="text-xs font-semibold uppercase text-amber-700">
+                                Missing Points
+                              </p>
+                              <p className="mt-1 whitespace-pre-wrap">
+                                {questionResult.missing_points}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {questionResult.expected_answer && (
+                        <p className="mt-2 text-xs text-gray-500">
+                          Expected answer: {questionResult.expected_answer}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -1051,7 +1203,7 @@ const ViewSubmissions = () => {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="sm:w-48">
                   <label className="block text-sm font-medium text-gray-700" htmlFor={`approved-score-${submission.id}`}>
-                    Approved Score
+                    Adjust Approved Score
                   </label>
                   <input
                     id={`approved-score-${submission.id}`}
@@ -1074,7 +1226,7 @@ const ViewSubmissions = () => {
                   className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold transition-colors ${
                     isApproving
                       ? "cursor-not-allowed bg-gray-200 text-gray-500"
-                      : "bg-blue-600 text-white hover:bg-blue-700"
+                      : "bg-green-600 text-white hover:bg-green-700"
                   }`}
                 >
                   {isApproving ? "Approving..." : "Approve Grade"}
@@ -1116,8 +1268,59 @@ const ViewSubmissions = () => {
         </div>
       </div>
 
+      {loadError && (
+        <div className="mb-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      )}
+
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-gray-500">Total</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{gradingWorkflowStats.total}</p>
+        </div>
+        <div className="rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-green-700">Auto-Graded</p>
+          <p className="mt-1 text-2xl font-bold text-green-900">{gradingWorkflowStats.autoGraded}</p>
+        </div>
+        <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-yellow-700">Needs Review</p>
+          <p className="mt-1 text-2xl font-bold text-yellow-900">{gradingWorkflowStats.needsReview}</p>
+        </div>
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-blue-700">Approved</p>
+          <p className="mt-1 text-2xl font-bold text-blue-900">{gradingWorkflowStats.approved}</p>
+        </div>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-red-700">Failed Grading</p>
+          <p className="mt-1 text-2xl font-bold text-red-900">{gradingWorkflowStats.failed}</p>
+        </div>
+      </div>
+
       {/* Filters and Controls */}
       <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {gradingFilterTabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setGradingFilter(tab.key)}
+              className={`rounded-md border px-3 py-2 text-sm font-semibold transition-colors ${
+                gradingFilter === tab.key
+                  ? "border-blue-600 bg-blue-600 text-white"
+                  : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              {tab.label}
+              <span
+                className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
+                  gradingFilter === tab.key ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                {gradingFilterCounts[tab.key]}
+              </span>
+            </button>
+          ))}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
           <div>
@@ -1170,8 +1373,8 @@ const ViewSubmissions = () => {
 
           {/* Quick Stats */}
           <div className="bg-blue-50 rounded-lg p-3">
-            <div className="text-sm text-blue-800 font-medium">Total Submissions</div>
-            <div className="text-2xl font-bold text-blue-900">{submissions.length}</div>
+            <div className="text-sm text-blue-800 font-medium">Showing</div>
+            <div className="text-2xl font-bold text-blue-900">{filteredSubmissions.length}</div>
           </div>
         </div>
       </div>
@@ -1307,7 +1510,7 @@ const ViewSubmissions = () => {
           <div className="text-gray-400 text-6xl mb-4">📭</div>
           <h3 className="text-lg font-medium text-gray-900 mb-2">No submissions found</h3>
           <p className="text-gray-600">
-            {searchTerm || filterAssignment !== "all" 
+            {searchTerm || filterAssignment !== "all" || gradingFilter !== "all"
               ? "Try adjusting your filters or search terms."
               : "Students haven't submitted any work yet."
             }
@@ -1349,8 +1552,9 @@ const ViewSubmissions = () => {
                   const rowGradingResult = gradingResults[sub.id] ?? null;
                   const rowIsGrading = gradingStatus[sub.id] === "loading";
                   const rowGradingError = gradingErrors[sub.id];
-                  const rowApproved =
-                    rowGradingResult?.status === "approved" || Boolean(rowGradingResult?.approved_at);
+                  const rowApproved = isApprovedResult(rowGradingResult);
+                  const rowStatusLabel = getSubmissionGradingLabel(rowGradingResult, rowIsGrading);
+                  const rowActionLabel = rowGradingResult ? "Regrade" : "Grade Automatically";
                   return (
                     <tr key={sub.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -1394,6 +1598,15 @@ const ViewSubmissions = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col items-start gap-2">
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${
+                              rowIsGrading
+                                ? "border-blue-200 bg-blue-50 text-blue-700"
+                                : getGradingStatusClass(rowGradingResult?.status)
+                            }`}
+                          >
+                            {rowStatusLabel}
+                          </span>
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => handleGradeAutomatically(sub)}
@@ -1404,7 +1617,11 @@ const ViewSubmissions = () => {
                                   : "bg-green-600 text-white hover:bg-green-700"
                               }`}
                             >
-                              {rowIsGrading ? "Grading..." : "Grade Automatically"}
+                              {rowIsGrading
+                                ? rowGradingResult
+                                  ? "Regrading..."
+                                  : "Grading..."
+                                : rowActionLabel}
                             </button>
                             <button
                               onClick={() => setSelected(sub)}
@@ -1415,13 +1632,6 @@ const ViewSubmissions = () => {
                           </div>
                           {rowGradingResult && (
                             <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span
-                                className={`rounded-full border px-2 py-1 font-semibold capitalize ${getGradingStatusClass(
-                                  rowGradingResult.status
-                                )}`}
-                              >
-                                {rowGradingResult.status}
-                              </span>
                               <span className="text-gray-600">
                                 {formatGradingNumber(rowGradingResult.total_score)} /{" "}
                                 {formatGradingNumber(rowGradingResult.max_score)}

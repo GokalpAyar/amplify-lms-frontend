@@ -21,6 +21,8 @@ interface Question {
   options?: string[];
   correctOption?: number;
   points?: number;
+  expected_answer?: string;
+  rubric?: string;
   required?: boolean;
   timeLimit?: number; // seconds, for ALL question types
 }
@@ -785,11 +787,20 @@ export default function CreateAssignment() {
       {/* Questions */}
       <div className="space-y-4">
         {questions.map((q, idx) => (
-          <div key={q.id} className="bg-white rounded-xl shadow p-4">
+          <div key={q.id} className="bg-white rounded-lg shadow p-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-gray-500">Question {idx + 1}</span>
-              <div className="flex gap-2">
+              <div>
+                <span className="text-sm font-semibold text-gray-900">
+                  Question {idx + 1}
+                </span>
+                {q.type === "oral" && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Oral responses are graded from the saved transcript.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
                 <select
                   value={q.type}
                   onChange={(e) => changeType(q.id, e.target.value as QType)}
@@ -885,6 +896,55 @@ export default function CreateAssignment() {
               </div>
             )}
 
+            {q.type !== "multiple" && (
+              <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-blue-950">
+                    AI grading guidance
+                  </p>
+                  <p className="mt-1 text-xs text-blue-800">
+                    Write criteria as point-based evidence. Good rubrics name what earns credit and what partial credit looks like.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Expected Answer
+                    </label>
+                    <textarea
+                      value={q.expected_answer ?? ""}
+                      onChange={(e) =>
+                        updateQuestion(q.id, { expected_answer: e.target.value })
+                      }
+                      placeholder="Example: A strong answer explains the claim, cites relevant evidence, and connects the evidence back to the prompt."
+                      className="w-full border rounded-md p-2"
+                      rows={4}
+                    />
+                    <p className="mt-1 text-xs text-blue-800">
+                      Use this as the target concept, not exact wording students must match.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">
+                      Rubric / Grading Criteria
+                    </label>
+                    <textarea
+                      value={q.rubric ?? ""}
+                      onChange={(e) =>
+                        updateQuestion(q.id, { rubric: e.target.value })
+                      }
+                      placeholder="Example: 4 pts accuracy, 3 pts completeness, 2 pts reasoning, 1 pt clarity. Award partial credit for correct but incomplete explanations."
+                      className="w-full border rounded-md p-2"
+                      rows={4}
+                    />
+                    <p className="mt-1 text-xs text-blue-800">
+                      Match the rubric total to the point value below for the most consistent grading.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Per-question timer (ALL types, same style as oral) */}
             <div className="mb-3 space-y-1">
               <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -930,9 +990,12 @@ export default function CreateAssignment() {
             </div>
 
             {/* Points + Required */}
-            <div className="flex gap-3 items-center">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Points</span>
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Points</span>
+                  <p className="text-xs text-gray-500">Maximum score for this question</p>
+                </div>
                 <input
                   type="text"
                   inputMode="decimal"
