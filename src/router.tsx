@@ -9,6 +9,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import AdminAccess from "./pages/AdminAccess";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import ResetPassword from "./pages/ResetPassword";
 
 // ---------- Admin ----------
 import AdminDashboard from "./app/admin/AdminDashboard";
@@ -56,6 +57,7 @@ const AppRouter = () => (
     <Routes>
       {/* ---------- Public Routes ---------- */}
       <Route path="/login" element={<Login />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/admin" element={<AdminAccess />} />
       <Route path="/student/:assignmentId" element={<TakeAssignment />} />
 

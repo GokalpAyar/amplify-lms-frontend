@@ -3,7 +3,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/supabaseClient";
 
-type Mode = "login" | "signup";
+type Mode = "login" | "signup" | "forgot";
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  return fallback;
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -27,8 +32,14 @@ export default function Login() {
   }, [navigate]);
 
   const handleLogin = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      throw new Error("Email is required.");
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: trimmedEmail,
       password,
     });
 
@@ -48,13 +59,18 @@ export default function Login() {
 
   const handleSignUp = async () => {
     const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim();
 
     if (!trimmedUsername) {
       throw new Error("Username is required.");
     }
 
+    if (!trimmedEmail) {
+      throw new Error("Email is required.");
+    }
+
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: trimmedEmail,
       password,
       options: {
         data: {
@@ -85,6 +101,26 @@ export default function Login() {
     setPassword("");
   };
 
+  const handleForgotPassword = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      throw new Error("Email is required.");
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    if (error) throw new Error(error.message);
+
+    setMessage(
+      "If an instructor account exists for this email, a password reset link has been sent."
+    );
+    setMode("login");
+    setPassword("");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -94,30 +130,35 @@ export default function Login() {
     try {
       if (mode === "login") {
         await handleLogin();
-      } else {
+      } else if (mode === "signup") {
         await handleSignUp();
+      } else {
+        await handleForgotPassword();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`${mode} failed:`, err);
-      setError(err?.message || `${mode} failed`);
+      setError(getErrorMessage(err, `${mode} failed`));
     } finally {
       setLoading(false);
     }
   };
 
-  const title =
-    mode === "login"
-      ? "Amplify LMS – Instructor Login"
-      : "Amplify LMS – Instructor Sign Up";
+  const titles: Record<Mode, string> = {
+    login: "Amplify LMS – Instructor Login",
+    signup: "Amplify LMS – Instructor Sign Up",
+    forgot: "Amplify LMS – Reset Password",
+  };
 
-  const buttonLabel =
-    mode === "login"
-      ? loading
-        ? "Logging in..."
-        : "Login"
-      : loading
-      ? "Creating account..."
-      : "Create Account";
+  const getButtonLabel = () => {
+    if (mode === "login") return loading ? "Logging in..." : "Login";
+    if (mode === "signup") {
+      return loading ? "Creating account..." : "Create Account";
+    }
+    return loading ? "Sending reset link..." : "Send Reset Link";
+  };
+
+  const buttonLabel = getButtonLabel();
+  const title = titles[mode];
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
@@ -151,27 +192,49 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
-              className="w-full border rounded-md p-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               placeholder={
-                mode === "login" ? "Enter your password" : "Create a password"
+                mode === "forgot"
+                  ? "Enter your account email"
+                  : "Enter your email"
               }
               className="w-full border rounded-md p-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
               required
             />
           </div>
+
+          {mode !== "forgot" && (
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                {mode === "login" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("forgot");
+                      setError(null);
+                      setMessage(null);
+                      setPassword("");
+                    }}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={
+                  mode === "login" ? "Enter your password" : "Create a password"
+                }
+                className="w-full border rounded-md p-2 mt-1 focus:outline-none focus:ring focus:ring-blue-200"
+                required
+              />
+            </div>
+          )}
 
           {error && <p className="text-red-600 text-sm text-center">{error}</p>}
 
@@ -204,9 +267,24 @@ export default function Login() {
                 Create one
               </button>
             </>
-          ) : (
+          ) : mode === "signup" ? (
             <>
               Already have an account?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("login");
+                  setError(null);
+                  setMessage(null);
+                }}
+                className="text-blue-600 hover:underline"
+              >
+                Login
+              </button>
+            </>
+          ) : (
+            <>
+              Remember your password?{" "}
               <button
                 type="button"
                 onClick={() => {
@@ -225,4 +303,3 @@ export default function Login() {
     </div>
   );
 }
-
